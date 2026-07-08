@@ -77,7 +77,12 @@ def available() -> bool:
 
 
 def _extract_json(text: str) -> dict:
-    text = text.strip()
+    text = (text or "").strip()
+    # model czasem owija JSON w ```json ... ``` — utnij ploty
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text.lower().startswith("json"):
+            text = text[4:]
     start = text.find("{")
     end = text.rfind("}")
     if start == -1 or end == -1:
@@ -101,17 +106,35 @@ def research(ticker: str, name: str, market: str, force: bool = False) -> dict:
     dims = "\n".join(f"- {k}: {v}" for k, v in DIMENSIONS.items())
     prompt = PROMPT_TMPL.format(name=name, ticker=ticker, market=market, dims=dims)
 
-    resp = client.chat.completions.create(
-        model=MODEL,
-        max_tokens=1200,
-        messages=[
-            {"role": "system", "content": SYSTEM},
-            {"role": "user", "content": prompt},
-        ],
-        response_format={"type": "json_object"},
-    )
+    def _call(json_mode: bool):
+        kwargs = dict(
+            model=MODEL,
+            # Modele Gemini "mysla" — rozumowanie tez zuzywa max_tokens. Za niski
+            # limit konczyl sie pustym contentem ("Brak JSON"). Stad duzy limit
+            # i reasoning_effort=low.
+            max_tokens=8192,
+            messages=[
+                {"role": "system", "content": SYSTEM},
+                {"role": "user", "content": prompt},
+            ],
+            extra_body={"reasoning_effort": "low"},
+        )
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+        return client.chat.completions.create(**kwargs)
 
+    resp = _call(json_mode=True)
     text = resp.choices[0].message.content or ""
+    if not text.strip():
+        # retry bez wymuszonego JSON — niektore modele zwracaja pusto z json_object
+        resp = _call(json_mode=False)
+        text = resp.choices[0].message.content or ""
+    if not text.strip():
+        fr = getattr(resp.choices[0], "finish_reason", "?")
+        raise RuntimeError(
+            f"Model zwrocil pusta odpowiedz (finish_reason={fr}, model={MODEL}). "
+            "Sprobuj ponownie lub ustaw inny model przez LLM_MODEL."
+        )
     data = _extract_json(text)
     data["ticker"] = ticker
     data["model"] = MODEL

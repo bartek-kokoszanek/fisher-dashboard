@@ -155,14 +155,28 @@ def fetch_raw(ticker: str) -> dict:
         # yfinance podaje w procentach
         debt_to_equity = info.get("debtToEquity") / 100.0
 
+    price = info.get("currentPrice") or info.get("regularMarketPrice")
+    target_mean = info.get("targetMeanPrice")
+    target_upside = None
+    if price and target_mean:
+        target_upside = target_mean / price - 1
+
     raw = {
         "ticker": ticker,
         "name": info.get("shortName") or info.get("longName") or config.NAMES.get(ticker, ticker),
         "market": config.market_of(ticker),
         "sector": info.get("sector"),
         "currency": info.get("currency"),
-        "price": info.get("currentPrice") or info.get("regularMarketPrice"),
+        "price": price,
         "market_cap": info.get("marketCap"),
+        "website": info.get("website"),
+        # --- konsensus analitykow (dla GPW czesto brak - zostaje None) ---
+        "target_mean": target_mean,
+        "target_upside": target_upside,
+        "analyst_count": info.get("numberOfAnalystOpinions"),
+        "recommendation_mean": info.get("recommendationMean"),
+        "recommendation_key": info.get("recommendationKey"),
+        "trailing_pe": info.get("trailingPE"),
         "is_financial": ticker in config.FINANCIALS or (info.get("sector") == "Financial Services"),
         # metryki wejsciowe do scoringu:
         "revenue_cagr": rev_cagr,
@@ -190,7 +204,9 @@ def get(ticker: str, max_age_hours: float = 24.0, force: bool = False) -> dict:
                 cached = json.load(f)
             ts = datetime.fromisoformat(cached["fetched_at"])
             age = (datetime.now(timezone.utc) - ts).total_seconds() / 3600
-            if age <= max_age_hours:
+            # "target_mean" in cached = wersjonowanie schematu: starsze cache
+            # (sprzed kolumn analitykow) sa odswiezane automatycznie
+            if age <= max_age_hours and "target_mean" in cached:
                 return cached
         except Exception:
             pass

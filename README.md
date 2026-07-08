@@ -97,6 +97,55 @@ Np. dla darmowego Groq: `LLM_BASE_URL="https://api.groq.com/openai/v1"`,
 
 ---
 
+## Deep research (sentyment + YouTube + relacje inwestorskie)
+
+Przycisk **🔎 Deep research** w panelu analizy bada ostatnie ~6 miesięcy:
+
+- **Sentyment rynku** — Gemini z narzędziem Google Search (grounding, w darmowym
+  tierze) przeszukuje świeże artykuły i ocenia sentyment w skali −100…+100.
+- **YouTube** — `yt-dlp` znajduje filmy o spółce (tytuł, kanał, data), a dla
+  najnowszych próbuje pobrać transkrypty. ⚠️ Na serwerach chmurowych YouTube
+  często blokuje transkrypty — wtedy analiza opiera się na tytułach i wyszukiwarce.
+  Model **nie ogląda filmów** — czyta transkrypty/metadane.
+- **Relacje inwestorskie** — grounding szuka raportów na stronie IR spółki.
+
+Sentyment **nie wpływa** na Wynik Fishera (to zjawisko krótkoterminowe) — jest
+wyświetlany osobno. Wyniki cache w `data/deep_<ticker>.json`. Wymaga `GEMINI_API_KEY`;
+model przez `DEEP_MODEL` (domyślnie `gemini-flash-latest`).
+
+---
+
+## Wyszukiwarka spółek
+
+Pole **🔍 Wyszukaj** w sekcji analizy obejmuje pełną pulę: ~5500 spółek Nasdaq
+(oficjalny katalog nasdaqtrader.com, odświeżany co 7 dni) i ~370 spółek GPW
+(lista w [gpw_tickers.py](gpw_tickers.py)). Wybrana spółka jest pobierana
+i punktowana na żądanie, dołącza do rankingu w bieżącej sesji.
+
+---
+
+## Listy obserwacyjne
+
+W panelu bocznym tworzysz własne listy (np. *Mój portfel*, *Do kupienia*),
+dodajesz/usuwasz spółki z poziomu analizy i filtrujesz ranking po liście.
+
+**Trwały zapis:** na Streamlit Cloud dysk jest ulotny — żeby listy przeżyły
+restarty, dodaj w Secrets `GITHUB_TOKEN` (token ze scope **gist**) i `GIST_ID`
+(patrz [.streamlit/secrets.toml.example](.streamlit/secrets.toml.example)).
+Bez tego listy działają, ale znikają przy redeployu; w panelu jest też
+eksport/import JSON jako ręczny backup.
+
+---
+
+## Kolumny analityków w rankingu
+
+Tabela pokazuje obok wyniku Fishera: cenę, **średnią cenę docelową** analityków,
+**% do celu** (kolorowany), **liczbę rekomendacji**, ocenę konsensusu
+(1 = Strong Buy … 5 = Sell), C/Z i kapitalizację. Źródło: Yahoo Finance;
+dla części spółek GPW konsensus jest niedostępny (puste pola).
+
+---
+
 ## Dostosowanie
 
 - **Dodać/usunąć spółki** → edytuj listy `NASDAQ` i `GPW` w [config.py](config.py).
@@ -123,10 +172,14 @@ Jeśli import nie rozpozna symboli, dodaj prefiks `GPW:` (dla warszawskich) ręc
 ```
 fisher-dashboard/
 ├── app.py            # dashboard Streamlit (UI)
-├── config.py         # uniwersum spółek + wagi
-├── data_fetch.py     # pobieranie fundamentów (yfinance) + cache
+├── config.py         # bazowe uniwersum spółek + wagi
+├── data_fetch.py     # pobieranie fundamentów + analitycy (yfinance) + cache
 ├── fisher_score.py   # scoring ilościowy 0–100
-├── ai_research.py    # jakościowa ocena AI (Gemini / OpenAI-compatible)
+├── ai_research.py    # szybka ocena jakościowa AI (Gemini / OpenAI-compatible)
+├── research_deep.py  # deep research: sentyment + YouTube + IR (Gemini grounding)
+├── universe.py       # pełna pula symboli Nasdaq+GPW (wyszukiwarka)
+├── gpw_tickers.py    # lista spółek GPW (generowana)
+├── watchlists.py     # listy obserwacyjne (GitHub Gist / plik lokalny)
 ├── smoke_test.py     # szybki test warstwy danych/scoringu
 ├── ui_test.py        # headless render-test (Streamlit AppTest)
 ├── requirements.txt

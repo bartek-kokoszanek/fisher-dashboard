@@ -4,6 +4,7 @@ Uruchom:  py -m streamlit run app.py
 """
 from __future__ import annotations
 
+import json
 import os
 
 import pandas as pd
@@ -13,11 +14,15 @@ import ai_research
 import config
 import data_fetch
 import fisher_score
+import research_deep
+import universe
+import watchlists
 
 # Na Streamlit Community Cloud klucz API wpisujesz w panelu Secrets. Przenosimy go
 # do zmiennej srodowiskowej, bo ai_research.py czyta klucz z os.environ.
 try:
-    for _k in ("GEMINI_API_KEY", "LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL"):
+    for _k in ("GEMINI_API_KEY", "LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL",
+               "GITHUB_TOKEN", "GIST_ID"):
         if _k in st.secrets and not os.environ.get(_k):
             os.environ[_k] = st.secrets[_k]
 except Exception:
@@ -40,32 +45,51 @@ METRIC_LABELS = {
 }
 
 
+def build_row(raw: dict) -> dict:
+    """Surowe dane -> wiersz rankingu (scoring + ocena AI z cache)."""
+    if "error" in raw:
+        return {**raw, "score": None, "coverage": 0}
+    res = fisher_score.compute_score(raw)
+    ai = ai_research.load_cached(raw["ticker"])
+    quality = ai.get("quality_score") if ai else None
+    # Wynik laczny: 70% ilosciowy + 30% jakosciowy (jesli jest research)
+    if res["score"] is not None and quality is not None:
+        combined = round(0.7 * res["score"] + 0.3 * quality, 1)
+    else:
+        combined = res["score"]
+    return {
+        **raw,
+        "score": res["score"],
+        "quality": quality,
+        "combined": combined,
+        "coverage": res["coverage"],
+        "subscores": res["subscores"],
+        "verdict": fisher_score.verdict(combined),
+    }
+
+
 @st.cache_data(show_spinner=False)
 def load_universe(force: bool):
     rows = data_fetch.get_many(config.all_tickers(), force=force)
-    out = []
-    for raw in rows:
-        if "error" in raw:
-            out.append({**raw, "score": None, "coverage": 0})
-            continue
-        res = fisher_score.compute_score(raw)
-        ai = ai_research.load_cached(raw["ticker"])
-        quality = ai.get("quality_score") if ai else None
-        # Wynik laczny: 70% ilosciowy + 30% jakosciowy (jesli jest research)
-        if res["score"] is not None and quality is not None:
-            combined = round(0.7 * res["score"] + 0.3 * quality, 1)
-        else:
-            combined = res["score"]
-        out.append({
-            **raw,
-            "score": res["score"],
-            "quality": quality,
-            "combined": combined,
-            "coverage": res["coverage"],
-            "subscores": res["subscores"],
-            "verdict": fisher_score.verdict(combined),
-        })
-    return out
+    return [build_row(raw) for raw in rows]
+
+
+@st.cache_data(show_spinner=False, ttl=24 * 3600)
+def load_pool():
+    """Pelna pula symboli Nasdaq+GPW do wyszukiwarki."""
+    return universe.all_symbols()
+
+
+def get_wl() -> dict:
+    if "watchlists" not in st.session_state:
+        st.session_state["watchlists"] = watchlists.load()
+    return st.session_state["watchlists"]
+
+
+def save_wl():
+    err = watchlists.save(st.session_state["watchlists"])
+    if err:
+        st.sidebar.warning(err)
 
 
 def fmt_pct(x):
@@ -86,6 +110,49 @@ if st.sidebar.button("🔄 Odswiez dane z Yahoo (wolne)"):
     st.sidebar.success("Zaktualizowano.")
 
 st.sidebar.divider()
+st.sidebar.subheader("📋 Listy obserwacyjne")
+wl = get_wl()
+wl_names = list(wl["lists"].keys())
+wl_filter = st.sidebar.selectbox("Pokaz spolki", ["Wszystkie"] + wl_names)
+
+new_list = st.sidebar.text_input("Nowa lista (nazwa)", placeholder="np. Moj portfel")
+if st.sidebar.button("➕ Utworz liste", disabled=not new_list.strip()):
+    name = new_list.strip()
+    if name in wl["lists"]:
+        st.sidebar.warning("Taka lista juz istnieje.")
+    else:
+        wl["lists"][name] = []
+        save_wl()
+        st.rerun()
+
+if wl_names:
+    with st.sidebar.expander("Zarzadzaj / backup"):
+        to_del = st.selectbox("Usun liste", ["—"] + wl_names)
+        if to_del != "—" and st.button(f"🗑 Usun '{to_del}'"):
+            wl["lists"].pop(to_del, None)
+            save_wl()
+            st.rerun()
+        st.download_button("⬇ Eksport list (JSON)",
+                           data=json.dumps(wl, ensure_ascii=False, indent=2),
+                           file_name="watchlists.json")
+        up = st.file_uploader("Import list (JSON)", type="json")
+        if up is not None and st.button("Wczytaj import"):
+            try:
+                imported = json.load(up)
+                assert isinstance(imported.get("lists"), dict)
+                st.session_state["watchlists"] = imported
+                save_wl()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Nieprawidlowy plik: {e}")
+
+if watchlists.backend() == "gist":
+    st.sidebar.caption("Zapis: GitHub Gist ✅ (trwaly)")
+else:
+    st.sidebar.caption("Zapis: lokalny plik — na Streamlit Cloud listy znikna przy "
+                       "restarcie. Dodaj GITHUB_TOKEN i GIST_ID w Secrets, by zapisywac do Gista.")
+
+st.sidebar.divider()
 st.sidebar.subheader("Research AI (jakosciowy)")
 if ai_research.available():
     st.sidebar.success("Klucz API wykryty")
@@ -95,29 +162,85 @@ st.sidebar.caption(f"Model: {ai_research.MODEL}")
 
 # ---------------- Dane ----------------
 data = load_universe(force=False)
+# spolki dodane z wyszukiwarki (poza bazowym uniwersum) — trzymane w sesji
+extra_rows = st.session_state.setdefault("extra_rows", {})
+known = {r["ticker"] for r in data}
+
+# spolki zapisane na listach, ktorych nie ma w bazowym uniwersum — dociagnij
+missing_listed = [t for t in watchlists.all_listed_tickers(wl)
+                  if t not in known and t not in extra_rows]
+if missing_listed:
+    with st.spinner(f"Pobieram spolki z Twoich list ({len(missing_listed)})..."):
+        for t in missing_listed:
+            extra_rows[t] = build_row(data_fetch.get(t))
+
+data = data + [r for t, r in extra_rows.items() if t not in known]
 df = pd.DataFrame(data)
 df = df[df["market"].isin(markets)]
 df = df[df["coverage"].fillna(0) >= min_cov]
+if wl_filter != "Wszystkie":
+    df = df[df["ticker"].isin(set(wl["lists"].get(wl_filter, [])))]
 
 # ---------------- Ranking ----------------
 st.title("Ranking Fishera")
 st.caption("Wynik 0-100. Laczy proxy ilosciowe (fundamenty) z ocena jakosciowa AI, jesli dostepna.")
 
 view = df.sort_values("combined", ascending=False, na_position="last").copy()
-table = view[["ticker", "name", "market", "combined", "score", "quality",
-              "coverage", "verdict"]].rename(columns={
-    "ticker": "Ticker", "name": "Spolka", "market": "Gielda",
-    "combined": "Wynik", "score": "Ilosciowy", "quality": "Jakosciowy (AI)",
-    "coverage": "Pokrycie %", "verdict": "Werdykt"})
+
+# kolumny w stylu skanera TradingView
+for col in ("price", "target_mean", "target_upside", "analyst_count",
+            "recommendation_mean", "recommendation_key", "trailing_pe", "market_cap"):
+    if col not in view.columns:
+        view[col] = None
+view["target_upside_pct"] = view["target_upside"].astype(float) * 100
+
+
+def _rec_label(r):
+    m = r.get("recommendation_mean")
+    k = r.get("recommendation_key")
+    if m is None or (isinstance(m, float) and pd.isna(m)):
+        return None
+    key = "" if (k is None or (isinstance(k, float) and pd.isna(k))) else str(k).replace("_", " ")
+    return f"{float(m):.1f} · {key}".strip(" ·")
+
+
+view["rec_label"] = view.apply(_rec_label, axis=1)
+
+table = view[["ticker", "name", "market", "price", "target_mean",
+              "target_upside_pct", "analyst_count", "rec_label", "trailing_pe",
+              "market_cap", "combined", "coverage", "verdict"]].rename(columns={
+    "ticker": "Symbol", "name": "Spolka", "market": "Gielda", "price": "Cena",
+    "target_mean": "Cena docelowa", "target_upside_pct": "Do celu %",
+    "analyst_count": "Rekom.", "rec_label": "Ocena analitykow",
+    "trailing_pe": "C/Z", "market_cap": "Kap. rynk.",
+    "combined": "Wynik", "coverage": "Pokrycie %", "verdict": "Werdykt"})
+
+
+def _upside_color(v):
+    if pd.isna(v):
+        return ""
+    return "color: #16a34a; font-weight: 600" if v >= 0 else "color: #dc2626; font-weight: 600"
+
+
+styled = table.style.map(_upside_color, subset=["Do celu %"])
 
 st.dataframe(
-    table,
+    styled,
     width="stretch", hide_index=True,
     column_config={
+        "Cena": st.column_config.NumberColumn(format="%.2f"),
+        "Cena docelowa": st.column_config.NumberColumn(format="%.2f"),
+        "Do celu %": st.column_config.NumberColumn(format="%+.1f%%"),
+        "Rekom.": st.column_config.NumberColumn(format="%d"),
+        "C/Z": st.column_config.NumberColumn(format="%.1f"),
+        "Kap. rynk.": st.column_config.NumberColumn(format="compact"),
         "Wynik": st.column_config.ProgressColumn("Wynik", min_value=0, max_value=100, format="%.1f"),
         "Pokrycie %": st.column_config.NumberColumn(format="%d%%"),
     },
 )
+st.caption("Cena i cena docelowa w walucie notowan (Nasdaq: USD, GPW: PLN). "
+           "Rekom. = liczba analitykow pokrywajacych spolke; ocena 1=Strong Buy ... 5=Sell. "
+           "Dla czesci spolek GPW konsensus analitykow jest niedostepny.")
 
 st.download_button(
     "⬇ Eksport watchlisty do TradingView (CSV tickerow)",
@@ -129,11 +252,58 @@ st.download_button(
 # ---------------- Szczegoly spolki ----------------
 st.divider()
 st.header("Analiza spolki")
+
+# Wyszukiwarka dowolnej spolki z pelnej puli Nasdaq (~5500) + GPW (~370)
+pool = load_pool()
+searched = st.selectbox(
+    "🔍 Wyszukaj dowolna spolke z Nasdaq/GPW (wpisz ticker lub fragment nazwy)",
+    options=sorted(pool.keys()),
+    index=None,
+    format_func=lambda t: f"{t} — {pool.get(t, t)}",
+    placeholder="np. MU, DINO, ORLEN, MICROSOFT...",
+)
+if searched and searched not in set(df["ticker"]):
+    with st.spinner(f"Pobieram i punktuje {searched}..."):
+        raw = data_fetch.get(searched)
+        new_row = build_row(raw)
+        st.session_state["extra_rows"][searched] = new_row
+    if "error" in new_row:
+        st.warning(f"Nie udalo sie pobrac danych dla {searched}: {new_row['error']}")
+    elif (new_row.get("coverage") or 0) < min_cov:
+        st.warning(f"{searched} ma pokrycie danych {new_row.get('coverage', 0):.0f}% — "
+                   f"ponizej filtra ({min_cov}%). Obniz suwak, by zobaczyc spolke.")
+    else:
+        st.rerun()
+
 choices = view["ticker"].tolist()
 if choices:
-    pick = st.selectbox("Wybierz spolke", choices,
+    default_idx = choices.index(searched) if searched in choices else 0
+    pick = st.selectbox("Wybierz spolke", choices, index=default_idx,
                         format_func=lambda t: f"{t} — {config.NAMES.get(t, view.set_index('ticker').loc[t, 'name'])}")
     row = df[df["ticker"] == pick].iloc[0].to_dict()
+
+    # --- przypisanie spolki do list obserwacyjnych ---
+    on_lists = [n for n, tks in wl["lists"].items() if pick in tks]
+    lc1, lc2, lc3 = st.columns([2, 1, 2])
+    addable = [n for n in wl_names if n not in on_lists]
+    with lc1:
+        target = st.selectbox("Dodaj do listy", addable if addable else ["—"],
+                              disabled=not addable, label_visibility="collapsed")
+    with lc2:
+        if st.button("➕ Dodaj do listy", disabled=not addable):
+            wl["lists"][target].append(pick)
+            save_wl()
+            st.rerun()
+    with lc3:
+        if on_lists:
+            st.caption("Na listach: " + ", ".join(on_lists))
+            rm = st.selectbox("Usun z listy", on_lists, label_visibility="collapsed")
+            if st.button("➖ Usun z listy"):
+                wl["lists"][rm].remove(pick)
+                save_wl()
+                st.rerun()
+        elif not wl_names:
+            st.caption("Utworz liste w panelu bocznym, by zapisywac spolki.")
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Wynik laczny", row.get("combined") or "—")
@@ -179,6 +349,60 @@ if choices:
             st.caption(f"Model: {ai.get('model')} · pewnosc: {ai.get('confidence')}%")
         else:
             st.caption("Brak researchu AI. Uruchom przyciskiem powyzej.")
+
+    # ---------------- Deep research ----------------
+    st.divider()
+    st.subheader("🔎 Deep research: sentyment rynku + YouTube + relacje inwestorskie")
+    st.caption(f"Analiza ostatnich {research_deep.MONTHS_BACK} miesiecy: artykuly "
+               "(Google Search), filmy z YouTube (tytuly + transkrypty, gdy dostepne) "
+               "i raporty z dzialu IR spolki. Sentyment NIE wplywa na Wynik Fishera. "
+               "Trwa 1-3 min.")
+    deep = research_deep.load_cached(pick)
+    if st.button("🔎 Uruchom deep research dla tej spolki",
+                 disabled=not research_deep.available()):
+        with st.spinner("Szukam filmow, artykulow i raportow IR..."):
+            try:
+                deep = research_deep.research(pick, row.get("name", pick),
+                                              row.get("market", ""),
+                                              row.get("website"), force=True)
+            except Exception as e:
+                st.error(f"Blad deep research: {e}")
+    if not research_deep.available():
+        st.caption("Wymaga GEMINI_API_KEY (grounding dziala tylko z Gemini).")
+    if deep:
+        s = deep.get("sentiment")
+        dm1, dm2 = st.columns([1, 3])
+        with dm1:
+            if s is not None:
+                st.metric("Sentyment rynku", f"{s:+d}", delta=int(s),
+                          help="-100 skrajnie negatywny ... +100 skrajnie pozytywny")
+            st.caption(f"Pewnosc: {deep.get('confidence', '—')}%")
+        with dm2:
+            st.info(deep.get("sentiment_summary", ""))
+        if deep.get("key_news"):
+            with st.expander(f"📰 Najwazniejsze newsy ({len(deep['key_news'])})",
+                             expanded=True):
+                for n in deep["key_news"]:
+                    st.write(f"**{n.get('title', '')}** _{n.get('date', '')}_")
+                    st.caption(n.get("takeaway", ""))
+        if deep.get("youtube_findings"):
+            with st.expander(f"▶️ YouTube ({len(deep['youtube_findings'])})"):
+                if deep.get("yt_note"):
+                    st.caption(f"ℹ️ {deep['yt_note']}")
+                for v in deep["youtube_findings"]:
+                    st.write(f"**{v.get('title', '')}** — {v.get('channel', '')} "
+                             f"_{v.get('date', '')}_")
+                    st.caption(v.get("takeaway", ""))
+        if deep.get("ir_findings"):
+            with st.expander("🏢 Relacje inwestorskie / raporty"):
+                st.write(deep["ir_findings"])
+        if deep.get("sources"):
+            with st.expander(f"🔗 Zrodla ({len(deep['sources'])})"):
+                for src in deep["sources"]:
+                    st.markdown(f"- [{src.get('title', src['url'])}]({src['url']})")
+        st.caption(f"Model: {deep.get('model')} · {deep.get('researched_at', '')}")
+    else:
+        st.caption("Brak deep researchu dla tej spolki. Uruchom przyciskiem powyzej.")
 else:
     st.info("Brak spolek spelniajacych filtry. Zluzuj min. pokrycie lub odswiez dane.")
 
