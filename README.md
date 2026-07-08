@@ -73,17 +73,27 @@ py -m venv .venv
 
 ## Research AI (opcjonalny, warstwa jakościowa)
 
-Ustaw klucz API Anthropic **przed** uruchomieniem:
+Domyślnie używa **darmowego Google Gemini**. Wygeneruj darmowy klucz (bez karty)
+na [aistudio.google.com/apikey](https://aistudio.google.com/apikey) i ustaw go **przed**
+uruchomieniem:
 
 ```powershell
-$env:ANTHROPIC_API_KEY = "sk-ant-..."
+$env:GEMINI_API_KEY = "..."
 .\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
-W panelu **Analiza spółki** kliknij *🤖 Uruchom research AI* — Claude oceni wymiary
-jakościowe i podbije/obniży wynik łączny. Wyniki cache'owane w `data/ai_<ticker>.json`.
-Domyślny model to `claude-haiku-4-5` (tani); zmienisz przez `FISHER_AI_MODEL`.
-Checkbox *Użyj wyszukiwania w sieci* włącza świeższe dane (droższe).
+W panelu **Analiza spółki** kliknij *🤖 Uruchom research AI* — model oceni wymiary
+jakościowe (zarząd, fosa, R&D, uczciwość) i podbije/obniży wynik łączny. Wyniki
+cache'owane w `data/ai_<ticker>.json`.
+
+**Inny provider.** Kod używa klienta OpenAI, więc zadziała z dowolnym API zgodnym z
+OpenAI. Przekieruj go zmiennymi środowiskowymi:
+- `LLM_BASE_URL` — endpoint (domyślnie Gemini)
+- `LLM_MODEL` — id modelu (domyślnie `gemini-flash-latest`)
+- `GEMINI_API_KEY` lub `LLM_API_KEY` — klucz
+
+Np. dla darmowego Groq: `LLM_BASE_URL="https://api.groq.com/openai/v1"`,
+`LLM_MODEL="llama-3.3-70b-versatile"`, `LLM_API_KEY="gsk_..."`.
 
 ---
 
@@ -116,7 +126,7 @@ fisher-dashboard/
 ├── config.py         # uniwersum spółek + wagi
 ├── data_fetch.py     # pobieranie fundamentów (yfinance) + cache
 ├── fisher_score.py   # scoring ilościowy 0–100
-├── ai_research.py    # jakościowa ocena AI (Anthropic API)
+├── ai_research.py    # jakościowa ocena AI (Gemini / OpenAI-compatible)
 ├── smoke_test.py     # szybki test warstwy danych/scoringu
 ├── ui_test.py        # headless render-test (Streamlit AppTest)
 ├── requirements.txt

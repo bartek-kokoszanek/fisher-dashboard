@@ -1,4 +1,4 @@
-"""Jakosciowy research wg Fishera z pomoca Claude (Anthropic API).
+"""Jakosciowy research wg Fishera z pomoca modelu LLM.
 
 Punktuje te wymiary Fishera, ktorych NIE ma w danych finansowych:
   - jakosc i uczciwosc zarzadu (pkt 7, 8, 9, 14, 15)
@@ -6,8 +6,14 @@ Punktuje te wymiary Fishera, ktorych NIE ma w danych finansowych:
   - kultura R&D i innowacji (pkt 2, 3)
   - horyzont dlugoterminowy (pkt 12)
 
-Wymaga zmiennej srodowiskowej ANTHROPIC_API_KEY.
-Opcjonalnie wlacza wyszukiwanie w sieci (use_web=True) dla swiezszych danych.
+Domyslnie uzywa DARMOWEGO Google Gemini przez jego endpoint kompatybilny z OpenAI.
+Konfiguracja przez zmienne srodowiskowe:
+  - GEMINI_API_KEY (lub LLM_API_KEY) — klucz; darmowy z https://aistudio.google.com/apikey
+  - LLM_BASE_URL  — domyslnie endpoint Gemini; mozna przekierowac na Groq/OpenRouter/OpenAI
+  - LLM_MODEL     — domyslnie "gemini-flash-latest"
+
+Poniewaz uzywamy klienta OpenAI, ten sam kod dziala z dowolnym providerem
+kompatybilnym z OpenAI — wystarczy zmienic LLM_BASE_URL, LLM_MODEL i klucz.
 Wyniki cache'owane do data/ai_<ticker>.json.
 """
 from __future__ import annotations
@@ -18,7 +24,15 @@ from datetime import datetime, timezone
 
 import config
 
-MODEL = os.environ.get("FISHER_AI_MODEL", "claude-haiku-4-5-20251001")
+BASE_URL = os.environ.get(
+    "LLM_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/"
+)
+MODEL = os.environ.get("LLM_MODEL", "gemini-flash-latest")
+
+
+def _api_key() -> str | None:
+    return os.environ.get("GEMINI_API_KEY") or os.environ.get("LLM_API_KEY")
+
 
 DIMENSIONS = {
     "management_quality": "Jakosc, glebia i kompetencje zarzadu (pkt 8-9 Fishera)",
@@ -59,7 +73,7 @@ def _cache_path(ticker: str) -> str:
 
 
 def available() -> bool:
-    return bool(os.environ.get("ANTHROPIC_API_KEY"))
+    return bool(_api_key())
 
 
 def _extract_json(text: str) -> dict:
@@ -71,39 +85,36 @@ def _extract_json(text: str) -> dict:
     return json.loads(text[start:end + 1])
 
 
-def research(ticker: str, name: str, market: str, use_web: bool = False,
-             force: bool = False) -> dict:
+def research(ticker: str, name: str, market: str, force: bool = False) -> dict:
     path = _cache_path(ticker)
     if not force and os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
 
-    if not available():
-        raise RuntimeError("Brak ANTHROPIC_API_KEY w srodowisku.")
+    key = _api_key()
+    if not key:
+        raise RuntimeError("Brak GEMINI_API_KEY (ani LLM_API_KEY) w srodowisku.")
 
-    import anthropic
-    client = anthropic.Anthropic()
+    from openai import OpenAI
+    client = OpenAI(api_key=key, base_url=BASE_URL)
 
     dims = "\n".join(f"- {k}: {v}" for k, v in DIMENSIONS.items())
     prompt = PROMPT_TMPL.format(name=name, ticker=ticker, market=market, dims=dims)
 
-    kwargs = dict(
+    resp = client.chat.completions.create(
         model=MODEL,
         max_tokens=1200,
-        system=SYSTEM,
-        messages=[{"role": "user", "content": prompt}],
+        messages=[
+            {"role": "system", "content": SYSTEM},
+            {"role": "user", "content": prompt},
+        ],
+        response_format={"type": "json_object"},
     )
-    if use_web:
-        kwargs["tools"] = [{"type": "web_search_20250305", "name": "web_search",
-                            "max_uses": 3}]
 
-    resp = client.messages.create(**kwargs)
-
-    text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+    text = resp.choices[0].message.content or ""
     data = _extract_json(text)
     data["ticker"] = ticker
     data["model"] = MODEL
-    data["used_web"] = use_web
     data["researched_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     # sredni wynik jakosciowy 0-100
@@ -128,5 +139,5 @@ if __name__ == "__main__":
     import sys
     tk = sys.argv[1] if len(sys.argv) > 1 else "AAPL"
     print(json.dumps(research(tk, config.NAMES.get(tk, tk),
-                              config.market_of(tk), use_web=False, force=True),
+                              config.market_of(tk), force=True),
                      ensure_ascii=False, indent=2))

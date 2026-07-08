@@ -15,10 +15,11 @@ import data_fetch
 import fisher_score
 
 # Na Streamlit Community Cloud klucz API wpisujesz w panelu Secrets. Przenosimy go
-# do zmiennej srodowiskowej, bo ai_research.py i SDK Anthropic czytaja z os.environ.
+# do zmiennej srodowiskowej, bo ai_research.py czyta klucz z os.environ.
 try:
-    if "ANTHROPIC_API_KEY" in st.secrets and not os.environ.get("ANTHROPIC_API_KEY"):
-        os.environ["ANTHROPIC_API_KEY"] = st.secrets["ANTHROPIC_API_KEY"]
+    for _k in ("GEMINI_API_KEY", "LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL"):
+        if _k in st.secrets and not os.environ.get(_k):
+            os.environ[_k] = st.secrets[_k]
 except Exception:
     pass  # brak pliku secrets lokalnie — to normalne
 
@@ -87,10 +88,10 @@ if st.sidebar.button("🔄 Odswiez dane z Yahoo (wolne)"):
 st.sidebar.divider()
 st.sidebar.subheader("Research AI (jakosciowy)")
 if ai_research.available():
-    st.sidebar.success("ANTHROPIC_API_KEY wykryty")
+    st.sidebar.success("Klucz API wykryty")
 else:
-    st.sidebar.warning("Ustaw ANTHROPIC_API_KEY, aby wlaczyc oceny jakosciowe")
-use_web = st.sidebar.checkbox("Uzyj wyszukiwania w sieci", value=False)
+    st.sidebar.warning("Ustaw GEMINI_API_KEY (darmowy, Google AI Studio), aby wlaczyc oceny jakosciowe")
+st.sidebar.caption(f"Model: {ai_research.MODEL}")
 
 # ---------------- Dane ----------------
 data = load_universe(force=False)
@@ -159,11 +160,10 @@ if choices:
         ai = ai_research.load_cached(pick)
         if st.button("🤖 Uruchom research AI dla tej spolki",
                      disabled=not ai_research.available()):
-            with st.spinner("Claude analizuje jakosc..."):
+            with st.spinner("Model analizuje jakosc..."):
                 try:
                     ai = ai_research.research(pick, row.get("name", pick),
-                                              row.get("market", ""),
-                                              use_web=use_web, force=True)
+                                              row.get("market", ""), force=True)
                     load_universe.clear()
                     st.success("Gotowe. Odswiez ranking, by uwzglednic wynik.")
                 except Exception as e:
@@ -176,8 +176,7 @@ if choices:
                 if note:
                     st.caption(note)
             st.info(ai.get("summary", ""))
-            st.caption(f"Model: {ai.get('model')} · pewnosc: {ai.get('confidence')}% · "
-                       f"{'z siecia' if ai.get('used_web') else 'bez sieci'}")
+            st.caption(f"Model: {ai.get('model')} · pewnosc: {ai.get('confidence')}%")
         else:
             st.caption("Brak researchu AI. Uruchom przyciskiem powyzej.")
 else:
