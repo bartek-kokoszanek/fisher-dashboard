@@ -30,8 +30,66 @@ BASE_URL = os.environ.get(
 MODEL = os.environ.get("LLM_MODEL", "gemini-flash-latest")
 
 
+def _keys() -> list[str]:
+    """Wszystkie dostepne klucze Gemini w kolejnosci prob (z deduplikacja).
+
+    Zrodla: GEMINI_API_KEYS (lista po przecinku), GEMINI_API_KEY,
+    GEMINI_API_KEY_2.._5, LLM_API_KEY. Rozne klucze = niezalezne darmowe pule,
+    wiec przy limicie 429 rotujemy na kolejny.
+    """
+    raw = []
+    raw += [k.strip() for k in os.environ.get("GEMINI_API_KEYS", "").split(",")]
+    raw.append(os.environ.get("GEMINI_API_KEY", ""))
+    for i in range(2, 6):
+        raw.append(os.environ.get(f"GEMINI_API_KEY_{i}", ""))
+    raw.append(os.environ.get("LLM_API_KEY", ""))
+    seen, out = set(), []
+    for k in raw:
+        if k and k not in seen:
+            seen.add(k)
+            out.append(k)
+    return out
+
+
 def _api_key() -> str | None:
-    return os.environ.get("GEMINI_API_KEY") or os.environ.get("LLM_API_KEY")
+    keys = _keys()
+    return keys[0] if keys else None
+
+
+def key_count() -> int:
+    return len(_keys())
+
+
+def _with_rotation(fn):
+    """Wywoluje fn(key) po kolei dla kazdego klucza; przy 429 probuje nastepny.
+
+    Przy ostatnim kluczu i limicie minutowym robi jedna probe ponowienia po 20 s.
+    Inne bledy przekazuje od razu. Gdy wszystkie klucze wyczerpane -> RuntimeError.
+    """
+    import time
+    keys = _keys()
+    if not keys:
+        raise RuntimeError("Brak GEMINI_API_KEY (ani LLM_API_KEY) w srodowisku.")
+    last_429 = None
+    for i, key in enumerate(keys):
+        try:
+            return fn(key)
+        except Exception as e:
+            if not friendly_429(e):
+                raise
+            last_429 = e
+            if i == len(keys) - 1:  # ostatni klucz: sprobuj raz po przerwie (limit/min)
+                time.sleep(20)
+                try:
+                    return fn(key)
+                except Exception as e2:
+                    last_429 = e2
+            # w innym wypadku: rotacja na kolejny klucz (bez czekania)
+    n = len(keys)
+    raise RuntimeError(
+        (f"Wszystkie klucze Gemini ({n}) wyczerpaly limit. " if n > 1 else "")
+        + (friendly_429(last_429) or "Limit Gemini wyczerpany.")
+    )
 
 
 DIMENSIONS = {
@@ -128,39 +186,30 @@ def complete_json(system: str, user: str, max_tokens: int = 4096) -> dict:
 
     Uzywane m.in. przez modul Financial Charts. Rzuca czytelny blad przy limicie.
     """
-    key = _api_key()
-    if not key:
-        raise RuntimeError("Brak GEMINI_API_KEY (ani LLM_API_KEY) w srodowisku.")
     from openai import OpenAI
-    client = OpenAI(api_key=key, base_url=BASE_URL)
 
-    def _call(json_mode: bool):
-        kwargs = dict(
-            model=MODEL, max_tokens=max_tokens,
-            messages=[{"role": "system", "content": system},
-                      {"role": "user", "content": user}],
-            extra_body={"reasoning_effort": "low"},
-        )
-        if json_mode:
-            kwargs["response_format"] = {"type": "json_object"}
-        return client.chat.completions.create(**kwargs)
+    def _do(key: str) -> str:
+        client = OpenAI(api_key=key, base_url=BASE_URL)
 
-    try:
+        def _call(json_mode: bool):
+            kwargs = dict(
+                model=MODEL, max_tokens=max_tokens,
+                messages=[{"role": "system", "content": system},
+                          {"role": "user", "content": user}],
+                extra_body={"reasoning_effort": "low"},
+            )
+            if json_mode:
+                kwargs["response_format"] = {"type": "json_object"}
+            return client.chat.completions.create(**kwargs)
+
         resp = _call(True)
-    except Exception as e:
-        if not friendly_429(e):
-            raise
-        import time
-        time.sleep(20)
-        try:
-            resp = _call(True)
-        except Exception as e2:
-            raise RuntimeError(friendly_429(e2) or str(e2)) from e2
-    text = resp.choices[0].message.content or ""
-    if not text.strip():
-        resp = _call(False)
         text = resp.choices[0].message.content or ""
-    return _extract_json(text)
+        if not text.strip():
+            resp = _call(False)
+            text = resp.choices[0].message.content or ""
+        return text
+
+    return _extract_json(_with_rotation(_do))
 
 
 def research(ticker: str, name: str, market: str, guru: str = "fisher",
@@ -172,59 +221,44 @@ def research(ticker: str, name: str, market: str, guru: str = "fisher",
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
 
-    key = _api_key()
-    if not key:
-        raise RuntimeError("Brak GEMINI_API_KEY (ani LLM_API_KEY) w srodowisku.")
-
     from openai import OpenAI
-    client = OpenAI(api_key=key, base_url=BASE_URL)
 
     dims = "\n".join(f"- {k}: {v}" for k, v in DIMENSIONS.items())
     prompt = PROMPT_TMPL.format(name=name, ticker=ticker, market=market, dims=dims)
     system = gurus.system_prompt(guru)
 
-    def _call(json_mode: bool):
-        kwargs = dict(
-            model=MODEL,
-            # Modele Gemini "mysla" — rozumowanie tez zuzywa max_tokens. Za niski
-            # limit konczyl sie pustym contentem ("Brak JSON"). Stad duzy limit
-            # i reasoning_effort=low.
-            max_tokens=8192,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": prompt},
-            ],
-            extra_body={"reasoning_effort": "low"},
-        )
-        if json_mode:
-            kwargs["response_format"] = {"type": "json_object"}
-        return client.chat.completions.create(**kwargs)
+    def _do(key: str) -> str:
+        client = OpenAI(api_key=key, base_url=BASE_URL)
 
-    try:
+        def _call(json_mode: bool):
+            kwargs = dict(
+                model=MODEL,
+                # Modele Gemini "mysla" — rozumowanie tez zuzywa max_tokens.
+                # Za niski limit konczyl sie pustym contentem. Stad duzy limit.
+                max_tokens=8192,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+                extra_body={"reasoning_effort": "low"},
+            )
+            if json_mode:
+                kwargs["response_format"] = {"type": "json_object"}
+            return client.chat.completions.create(**kwargs)
+
         resp = _call(json_mode=True)
-    except Exception as e:
-        msg = friendly_429(e)
-        if not msg:
-            raise
-        # limit minutowy? jedna proba ponowienia po 20 s
-        import time
-        time.sleep(20)
-        try:
-            resp = _call(json_mode=True)
-        except Exception as e2:
-            raise RuntimeError(friendly_429(e2) or str(e2)) from e2
-    text = resp.choices[0].message.content or ""
-    if not text.strip():
-        # retry bez wymuszonego JSON — niektore modele zwracaja pusto z json_object
-        resp = _call(json_mode=False)
         text = resp.choices[0].message.content or ""
-    if not text.strip():
-        fr = getattr(resp.choices[0], "finish_reason", "?")
-        raise RuntimeError(
-            f"Model zwrocil pusta odpowiedz (finish_reason={fr}, model={MODEL}). "
-            "Sprobuj ponownie lub ustaw inny model przez LLM_MODEL."
-        )
-    data = _extract_json(text)
+        if not text.strip():
+            resp = _call(json_mode=False)
+            text = resp.choices[0].message.content or ""
+        if not text.strip():
+            fr = getattr(resp.choices[0], "finish_reason", "?")
+            raise RuntimeError(
+                f"Model zwrocil pusta odpowiedz (finish_reason={fr}, model={MODEL}). "
+                "Sprobuj ponownie lub ustaw inny model przez LLM_MODEL.")
+        return text
+
+    data = _extract_json(_with_rotation(_do))
     data["ticker"] = ticker
     data["guru"] = guru
     data["model"] = MODEL

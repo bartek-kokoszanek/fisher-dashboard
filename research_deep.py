@@ -177,8 +177,8 @@ def research(ticker: str, name: str, market: str, website: str | None = None,
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
 
-    key = os.environ.get("GEMINI_API_KEY")
-    if not key:
+    import ai_research
+    if not ai_research.available():
         raise RuntimeError("Deep research wymaga GEMINI_API_KEY.")
 
     yt = yt_research(name, ticker, market)
@@ -203,10 +203,9 @@ def research(ticker: str, name: str, market: str, website: str | None = None,
 
     from google import genai
     from google.genai import types
-    from ai_research import friendly_429
-    client = genai.Client(api_key=key)
 
-    def _generate():
+    def _generate(key: str):
+        client = genai.Client(api_key=key)
         return client.models.generate_content(
             model=DEEP_MODEL,
             contents=prompt,
@@ -218,22 +217,8 @@ def research(ticker: str, name: str, market: str, website: str | None = None,
             ),
         )
 
-    try:
-        resp = _generate()
-    except Exception as e:
-        msg = friendly_429(e)
-        if not msg:
-            raise
-        import time
-        time.sleep(20)  # limit minutowy? jedna proba ponowienia
-        try:
-            resp = _generate()
-        except Exception as e2:
-            raise RuntimeError(
-                (friendly_429(e2) or str(e2)) +
-                " Uwaga: wyszukiwarka (grounding) ma osobny, cisniejszy limit "
-                "darmowy niz zwykle zapytania."
-            ) from e2
+    # rotacja kluczy przy 429 (grounding ma osobny, ciasniejszy limit darmowy)
+    resp = ai_research._with_rotation(_generate)
 
     data = _extract_json(resp.text or "")
 

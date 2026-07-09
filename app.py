@@ -26,8 +26,10 @@ from gpw_tickers import GPW_TICKERS
 # Na Streamlit Community Cloud klucz API wpisujesz w panelu Secrets. Przenosimy go
 # do zmiennej srodowiskowej, bo ai_research.py czyta klucz z os.environ.
 try:
-    for _k in ("GEMINI_API_KEY", "LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL",
-               "GITHUB_TOKEN", "GIST_ID"):
+    _bridge = ["GEMINI_API_KEY", "GEMINI_API_KEYS", "LLM_API_KEY", "LLM_BASE_URL",
+               "LLM_MODEL", "DEEP_MODEL", "GITHUB_TOKEN", "GIST_ID"]
+    _bridge += [f"GEMINI_API_KEY_{i}" for i in range(2, 6)]
+    for _k in _bridge:
         if _k in st.secrets and not os.environ.get(_k):
             os.environ[_k] = st.secrets[_k]
 except Exception:
@@ -228,8 +230,10 @@ else:
 
 st.sidebar.divider()
 st.sidebar.subheader("Research AI (jakosciowy)")
-if ai_research.available():
-    st.sidebar.success("Klucz API wykryty")
+_nkeys = ai_research.key_count()
+if _nkeys:
+    st.sidebar.success(f"Klucze API Gemini: {_nkeys}"
+                       + (" (rotacja przy limicie)" if _nkeys > 1 else ""))
 else:
     st.sidebar.warning("Ustaw GEMINI_API_KEY (darmowy, Google AI Studio), aby wlaczyc oceny jakosciowe")
 st.sidebar.caption(f"Model: {ai_research.MODEL}")

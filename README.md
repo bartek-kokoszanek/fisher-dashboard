@@ -129,6 +129,12 @@ czytelny komunikat i sama ponowi próbę po 20 s. Limit dzienny odnawia się
 o północy czasu pacyficznego (~9:00 rano w Polsce). Grounding (deep research)
 ma osobny, ciaśniejszy limit niż zwykłe zapytania.
 
+**Wiele kluczy (rotacja).** Darmowe limity są per konto/projekt, więc możesz
+podać klucze z kilku kont — gdy jeden wyczerpie limit, system automatycznie
+przełącza się na następny. W Secrets: `GEMINI_API_KEYS = "klucz1,klucz2,klucz3"`
+(albo `GEMINI_API_KEY_2`, `GEMINI_API_KEY_3`). W panelu bocznym widać liczbę
+wykrytych kluczy. Rotacja nie omija limitów — sumuje niezależne pule.
+
 **Inny provider.** Kod używa klienta OpenAI, więc zadziała z dowolnym API zgodnym z
 OpenAI. Przekieruj go zmiennymi środowiskowymi:
 - `LLM_BASE_URL` — endpoint (domyślnie Gemini)
