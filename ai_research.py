@@ -60,6 +60,35 @@ def key_count() -> int:
     return len(_keys())
 
 
+# Domyslny lancuch modeli do rotacji. Kazdy model ma OSOBNA darmowa pule limitow,
+# wiec przy 429 przechodzimy do kolejnego -> sumujemy niezalezne pule.
+DEFAULT_CHAIN = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
+
+
+def _dedup(seq):
+    seen, out = set(), []
+    for x in seq:
+        x = x.strip()
+        if x and x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out
+
+
+def _models(primary: str, extra_default: list[str] | None = None) -> list[str]:
+    """Lista modeli do rotacji. Env LLM_MODELS (po przecinku) nadpisuje domyslny
+    lancuch [primary] + tansze modele fallback."""
+    override = os.environ.get("LLM_MODELS", "")
+    if override.strip():
+        return _dedup(override.split(","))
+    return _dedup([primary] + (extra_default if extra_default is not None
+                               else DEFAULT_CHAIN))
+
+
+def models_active() -> list[str]:
+    return _models(MODEL)
+
+
 def _is_transient(e) -> bool:
     """Przejsciowy blad serwera (503/500/przeciazenie) — warto ponowic ten sam klucz."""
     s = str(e).lower()
@@ -67,24 +96,27 @@ def _is_transient(e) -> bool:
                                 "high demand", "try again later", "internal error"))
 
 
-def _with_rotation(fn):
-    """Wywoluje fn(key) po kolei dla kazdego klucza z odpornoscia na bledy.
+def _with_rotation(fn, models=None):
+    """Wywoluje fn(key, model) dla kombinacji MODEL × KLUCZ, odpornie na bledy.
 
-    - Przejsciowy blad serwera (503/przeciazenie) -> retry TEGO SAMEGO klucza
-      z narastajaca przerwa (2 proby).
-    - Limit 429 -> rotacja na kolejny klucz; przy ostatnim retry po 20 s.
-    - Inny blad -> przekazany od razu. Wszystkie wyczerpane -> RuntimeError.
+    Kazdy model i kazdy klucz ma osobna pule limitow -> przy 429 przechodzimy
+    do kolejnej kombinacji (najpierw wszystkie klucze danego modelu, potem
+    nastepny model). To sumuje niezalezne pule.
+    - Przejsciowy blad 503 -> retry tej samej kombinacji z backoff (2 proby).
+    - 429 -> nastepna kombinacja. Inny blad -> od razu przekazany.
     """
     import time
     keys = _keys()
     if not keys:
         raise RuntimeError("Brak GEMINI_API_KEY (ani LLM_API_KEY) w srodowisku.")
-    last_err = None
-    last_transient = False
-    for i, key in enumerate(keys):
-        for attempt in range(3):  # retry przejsciowych bledow na tym kluczu
+    models = models or _models(MODEL)
+    combos = [(m, k) for m in models for k in keys]
+
+    last_err, last_transient = None, False
+    for idx, (model, key) in enumerate(combos):
+        for attempt in range(3):  # retry przejsciowych bledow na tej kombinacji
             try:
-                return fn(key)
+                return fn(key, model)
             except Exception as e:
                 if _is_transient(e) and attempt < 2:
                     last_err, last_transient = e, True
@@ -92,26 +124,24 @@ def _with_rotation(fn):
                     continue
                 if friendly_429(e):
                     last_err, last_transient = e, False
-                    if i == len(keys) - 1:  # ostatni klucz: proba po przerwie
+                    if idx == len(combos) - 1:  # ostatnia kombinacja: proba po 20 s
                         time.sleep(20)
                         try:
-                            return fn(key)
+                            return fn(key, model)
                         except Exception as e2:
                             last_err = e2
-                    break  # rotacja na kolejny klucz
-                if _is_transient(e):  # wyczerpano retry przejsciowe
+                    break  # nastepna kombinacja (model/klucz)
+                if _is_transient(e):
                     last_err, last_transient = e, True
                     break
                 raise  # inny, trwaly blad
     if last_transient:
         raise RuntimeError(
             "Serwer Gemini jest chwilowo przeciazony (503). To przejsciowe — "
-            "sprobuj ponownie za chwile. Mozesz tez ustawic stabilny model, "
-            "np. LLM_MODEL/DEEP_MODEL = 'gemini-2.5-flash'.")
-    n = len(keys)
+            "sprobuj ponownie za chwile.")
     raise RuntimeError(
-        (f"Wszystkie klucze Gemini ({n}) wyczerpaly limit. " if n > 1 else "")
-        + (friendly_429(last_err) or "Limit Gemini wyczerpany.")
+        f"Wyczerpano limity wszystkich modeli ({len(models)}) i kluczy "
+        f"({len(keys)}). " + (friendly_429(last_err) or "Limit Gemini wyczerpany.")
     )
 
 
@@ -211,12 +241,12 @@ def complete_json(system: str, user: str, max_tokens: int = 4096) -> dict:
     """
     from openai import OpenAI
 
-    def _do(key: str) -> str:
+    def _do(key: str, model: str) -> str:
         client = OpenAI(api_key=key, base_url=BASE_URL)
 
         def _call(json_mode: bool):
             kwargs = dict(
-                model=MODEL, max_tokens=max_tokens,
+                model=model, max_tokens=max_tokens,
                 messages=[{"role": "system", "content": system},
                           {"role": "user", "content": user}],
                 extra_body={"reasoning_effort": "low"},
@@ -250,12 +280,15 @@ def research(ticker: str, name: str, market: str, guru: str = "fisher",
     prompt = PROMPT_TMPL.format(name=name, ticker=ticker, market=market, dims=dims)
     system = gurus.system_prompt(guru)
 
-    def _do(key: str) -> str:
+    used = {"model": MODEL}
+
+    def _do(key: str, model: str) -> str:
+        used["model"] = model
         client = OpenAI(api_key=key, base_url=BASE_URL)
 
         def _call(json_mode: bool):
             kwargs = dict(
-                model=MODEL,
+                model=model,
                 # Modele Gemini "mysla" — rozumowanie tez zuzywa max_tokens.
                 # Za niski limit konczyl sie pustym contentem. Stad duzy limit.
                 max_tokens=8192,
@@ -277,14 +310,14 @@ def research(ticker: str, name: str, market: str, guru: str = "fisher",
         if not text.strip():
             fr = getattr(resp.choices[0], "finish_reason", "?")
             raise RuntimeError(
-                f"Model zwrocil pusta odpowiedz (finish_reason={fr}, model={MODEL}). "
+                f"Model zwrocil pusta odpowiedz (finish_reason={fr}, model={model}). "
                 "Sprobuj ponownie lub ustaw inny model przez LLM_MODEL.")
         return text
 
     data = _extract_json(_with_rotation(_do))
     data["ticker"] = ticker
     data["guru"] = guru
-    data["model"] = MODEL
+    data["model"] = used["model"]
     data["researched_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     # sredni wynik jakosciowy 0-100

@@ -223,10 +223,13 @@ def research(ticker: str, name: str, market: str, website: str | None = None,
     from google import genai
     from google.genai import types
 
-    def _generate(key: str):
+    used = {"model": DEEP_MODEL}
+
+    def _generate(key: str, model: str):
+        used["model"] = model
         client = genai.Client(api_key=key)
         return client.models.generate_content(
-            model=DEEP_MODEL,
+            model=model,
             contents=prompt,
             config=types.GenerateContentConfig(
                 tools=[types.Tool(google_search=types.GoogleSearch())],
@@ -236,8 +239,9 @@ def research(ticker: str, name: str, market: str, website: str | None = None,
             ),
         )
 
-    # rotacja kluczy przy 429 (grounding ma osobny, ciasniejszy limit darmowy)
-    resp = ai_research._with_rotation(_generate)
+    # rotacja modeli × kluczy (grounding: tylko Flash, bez Lite)
+    resp = ai_research._with_rotation(
+        _generate, models=ai_research._models(DEEP_MODEL, ["gemini-2.5-flash"]))
 
     data = _extract_json(resp.text or "")
 

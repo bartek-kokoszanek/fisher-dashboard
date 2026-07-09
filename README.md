@@ -135,6 +135,14 @@ przełącza się na następny. W Secrets: `GEMINI_API_KEYS = "klucz1,klucz2,kluc
 (albo `GEMINI_API_KEY_2`, `GEMINI_API_KEY_3`). W panelu bocznym widać liczbę
 wykrytych kluczy. Rotacja nie omija limitów — sumuje niezależne pule.
 
+**Rotacja modeli.** Każdy model Gemini ma **osobną** darmową pulę limitów
+(np. Gemini 3.5 Flash ma tylko ~20 zapytań/dobę). Zamiast bić w jeden model,
+system rotuje: domyślnie `gemini-flash-latest → gemini-2.5-flash →
+gemini-2.5-flash-lite`. Przy błędzie 429 przechodzi do następnego modelu — więc
+efektywna pojemność to **klucze × modele × ~20/dobę**. Kolejność/zestaw zmienisz
+przez `LLM_MODELS = "model1,model2,..."` w Secrets. Grounding (deep research)
+i transkrypcja audio używają tylko modeli Flash (bez Lite).
+
 **Inny provider.** Kod używa klienta OpenAI, więc zadziała z dowolnym API zgodnym z
 OpenAI. Przekieruj go zmiennymi środowiskowymi:
 - `LLM_BASE_URL` — endpoint (domyślnie Gemini)

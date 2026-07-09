@@ -125,10 +125,10 @@ def transcribe_audio(path: str) -> str:
     with open(path, "rb") as f:
         audio_bytes = f.read()
 
-    def _do(key: str) -> str:
+    def _do(key: str, model: str) -> str:
         client = genai.Client(api_key=key)
         resp = client.models.generate_content(
-            model=STT_MODEL,
+            model=model,
             contents=[
                 "Dokonaj wiernej transkrypcji mowy z tego nagrania (jezyk polski "
                 "lub angielski). Zwroc sam tekst transkrypcji, bez komentarzy.",
@@ -137,7 +137,9 @@ def transcribe_audio(path: str) -> str:
         )
         return (resp.text or "").strip()
 
-    return ai_research._with_rotation(_do)[:TRANSCRIPT_CHARS]
+    # audio wspieraja modele Flash (bez Lite)
+    models = ai_research._models(STT_MODEL, ["gemini-2.5-flash"])
+    return ai_research._with_rotation(_do, models=models)[:TRANSCRIPT_CHARS]
 
 
 def get_transcript(video_id: str, allow_audio: bool = True) -> dict:

@@ -28,8 +28,8 @@ from gpw_tickers import GPW_TICKERS
 # do zmiennej srodowiskowej, bo ai_research.py czyta klucz z os.environ.
 try:
     _bridge = ["GEMINI_API_KEY", "GEMINI_API_KEYS", "LLM_API_KEY", "LLM_BASE_URL",
-               "LLM_MODEL", "DEEP_MODEL", "STT_MODEL", "GITHUB_TOKEN", "GIST_ID",
-               "YT_PROXY"]
+               "LLM_MODEL", "LLM_MODELS", "DEEP_MODEL", "STT_MODEL",
+               "GITHUB_TOKEN", "GIST_ID", "YT_PROXY"]
     _bridge += [f"GEMINI_API_KEY_{i}" for i in range(2, 6)]
     for _k in _bridge:
         if _k in st.secrets and not os.environ.get(_k):
@@ -246,7 +246,8 @@ if _nkeys:
                        + (" (rotacja przy limicie)" if _nkeys > 1 else ""))
 else:
     st.sidebar.warning("Ustaw GEMINI_API_KEY (darmowy, Google AI Studio), aby wlaczyc oceny jakosciowe")
-st.sidebar.caption(f"Model: {ai_research.MODEL}")
+_ms = ai_research.models_active()
+st.sidebar.caption(f"Modele (rotacja): {', '.join(m.replace('gemini-', '') for m in _ms)}")
 
 # ---------------- Dane ----------------
 raws = load_raws(force=False)
