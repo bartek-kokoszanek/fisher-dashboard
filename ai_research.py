@@ -123,6 +123,46 @@ def _extract_json(text: str) -> dict:
     return _loads_lenient(text[start:end + 1])
 
 
+def complete_json(system: str, user: str, max_tokens: int = 4096) -> dict:
+    """Uniwersalne wywolanie modelu zwracajacego JSON (odporne na 429 i usterki).
+
+    Uzywane m.in. przez modul Financial Charts. Rzuca czytelny blad przy limicie.
+    """
+    key = _api_key()
+    if not key:
+        raise RuntimeError("Brak GEMINI_API_KEY (ani LLM_API_KEY) w srodowisku.")
+    from openai import OpenAI
+    client = OpenAI(api_key=key, base_url=BASE_URL)
+
+    def _call(json_mode: bool):
+        kwargs = dict(
+            model=MODEL, max_tokens=max_tokens,
+            messages=[{"role": "system", "content": system},
+                      {"role": "user", "content": user}],
+            extra_body={"reasoning_effort": "low"},
+        )
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+        return client.chat.completions.create(**kwargs)
+
+    try:
+        resp = _call(True)
+    except Exception as e:
+        if not friendly_429(e):
+            raise
+        import time
+        time.sleep(20)
+        try:
+            resp = _call(True)
+        except Exception as e2:
+            raise RuntimeError(friendly_429(e2) or str(e2)) from e2
+    text = resp.choices[0].message.content or ""
+    if not text.strip():
+        resp = _call(False)
+        text = resp.choices[0].message.content or ""
+    return _extract_json(text)
+
+
 def research(ticker: str, name: str, market: str, guru: str = "fisher",
              force: bool = False) -> dict:
     import gurus

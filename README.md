@@ -158,6 +158,23 @@ model przez `DEEP_MODEL` (domyślnie `gemini-flash-latest`).
 
 ---
 
+## Financial Charts
+
+W sekcji analizy spółki (między oceną a deep research) moduł **📊 Financial Charts**:
+kafelki KPI (Revenue/EPS CAGR, marża, ROE, P/E, dywidenda, FCF, dług/EBITDA) i
+15 wykresów Plotly w kartach 2-kolumnowych (przychody, wzrost, zysk, marże, ROE,
+ROIC, FCF, dług netto, **P/E history z pasmami i auto-komentarzem**, dywidendy,
+liczba akcji z wykryciem buyback/dilution, EPS, book value, marża operacyjna) oraz
+**interpretacja AI** (Financial Quality 0–100 + wycena Cheap/Fair/Expensive).
+
+Kod modularny w [charts/](charts/): `helpers.py` (kolory, layout, CAGR, format),
+`data.py` (historia z yfinance, cache), `*_chart.py` (po jednej funkcji na wykres).
+
+> ⚠️ Darmowy yfinance daje ~5 lat rocznych sprawozdań (dywidendy i P/E — dłużej).
+> Wykresy pokazują tyle, ile jest; brak danych = komunikat, nie błąd.
+
+---
+
 ## Wyszukiwarka spółek
 
 Pole **🔍 Wyszukaj** w sekcji analizy obejmuje pełną pulę: ~5500 spółek Nasdaq
@@ -221,6 +238,8 @@ fisher-dashboard/
 ├── gurus.py          # 8 strategii inwestorów (wagi + prompty AI)
 ├── gpw_indices.py    # składy WIG20/mWIG40/sWIG80 + lista Nasdaq-AI
 ├── ai_research.py    # szybka ocena jakościowa AI (Gemini / OpenAI-compatible)
+├── financial_charts.py # sekcja "Financial Charts" (KPI + 15 wykresow + AI)
+├── charts/           # modularne wykresy Plotly (helpers, data, *_chart.py)
 ├── research_deep.py  # deep research: sentyment + YouTube + IR (Gemini grounding)
 ├── universe.py       # pełna pula symboli Nasdaq+GPW (wyszukiwarka)
 ├── gpw_tickers.py    # lista spółek GPW (generowana)

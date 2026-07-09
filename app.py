@@ -13,6 +13,7 @@ import streamlit as st
 import ai_research
 import config
 import data_fetch
+import financial_charts
 import fisher_score
 import gpw_indices
 import gurus
@@ -404,6 +405,10 @@ if choices:
             st.subheader("⚠️ Najwieksze wady i ryzyka")
             for w in ai.get("weaknesses", []):
                 st.markdown(f"- {w}")
+
+    # ---------------- Financial Charts ----------------
+    st.divider()
+    financial_charts.render(pick, row)
 
     # ---------------- Deep research ----------------
     st.divider()
