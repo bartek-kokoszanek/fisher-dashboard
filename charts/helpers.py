@@ -59,7 +59,8 @@ def base_layout(fig, height: int = 260, legend: bool = False):
         legend=dict(orientation="h", yanchor="bottom", y=1.0, x=0),
         bargap=0.25,
     )
-    fig.update_xaxes(showgrid=False, zeroline=False)
+    # lata jako kategorie: bez ulamkowych etykiet (2021.5) na osi X
+    fig.update_xaxes(showgrid=False, zeroline=False, type="category")
     fig.update_yaxes(showgrid=True, gridcolor="rgba(128,128,128,0.15)",
                      zeroline=True, zerolinecolor="rgba(128,128,128,0.35)")
     return fig

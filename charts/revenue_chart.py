@@ -6,18 +6,41 @@ import plotly.graph_objects as go
 from . import helpers as h
 
 
+def _forecast_bars(fig, fc: dict, color: str):
+    """Dokleja slupki prognozy analitykow (0y/+1y) z widelkami low/high."""
+    fyears = sorted(fc)
+    if not fyears:
+        return False
+    xf = [str(y) for y in fyears]
+    avg = [fc[y]["avg"] for y in fyears]
+    err_plus = [(fc[y]["high"] - fc[y]["avg"]) if h.is_num(fc[y].get("high")) else None
+                for y in fyears]
+    err_minus = [(fc[y]["avg"] - fc[y]["low"]) if h.is_num(fc[y].get("low")) else None
+                 for y in fyears]
+    fig.add_bar(x=xf, y=avg, name="Prognoza analityków",
+                marker=dict(color=color, opacity=0.45, pattern_shape="/"),
+                error_y=dict(type="data", symmetric=False, array=err_plus,
+                             arrayminus=err_minus, color="rgba(128,128,128,0.6)"),
+                text=[h.human(v) for v in avg], textposition="outside",
+                hovertemplate="%{x} (prognoza): %{text}<extra></extra>")
+    return True
+
+
 def fig_revenue(hist: dict):
     years, vals = h.sorted_items(hist["series"].get("revenue"))
+    years, vals = years[-5:], vals[-5:]
     if len(years) < 2:
         return None
+    xh = [str(y) for y in years]
     fig = go.Figure()
-    fig.add_bar(x=years, y=vals, name="Przychody",
-                marker_color=h.COLORS["revenue"],
+    fig.add_bar(x=xh, y=vals, name="Historia", marker_color=h.COLORS["revenue"],
                 text=[h.human(v) for v in vals], textposition="outside",
                 hovertemplate="%{x}: %{text}<extra></extra>")
-    fig.add_scatter(x=years, y=vals, mode="lines", line=dict(color=h.COLORS["revenue"], width=2),
+    fig.add_scatter(x=xh, y=vals, mode="lines", line=dict(color=h.COLORS["revenue"], width=2),
                     hoverinfo="skip", showlegend=False)
-    return h.base_layout(fig)
+    fc = (hist.get("forecast") or {}).get("revenue") or {}
+    has_fc = _forecast_bars(fig, fc, h.COLORS["revenue"])
+    return h.base_layout(fig, legend=has_fc)
 
 
 def _growth_fig(hist, key):

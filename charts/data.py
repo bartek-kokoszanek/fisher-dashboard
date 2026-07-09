@@ -87,6 +87,48 @@ def _diff(a: dict, b: dict) -> dict:
     return out
 
 
+def _fetch_forecast(t, revenue: dict, eps: dict) -> dict:
+    """Prognozy analitykow z yfinance: przychody i EPS na 0y/+1y + cena docelowa.
+
+    Darmowe dane siegaja zwykle 2 lat naprzod (biezacy rok obrachunkowy '0y'
+    i nastepny '+1y'). Mapujemy je na lata kalendarzowe po ostatnim roku historii.
+    """
+    out = {"revenue": {}, "eps": {}, "price_target": {}}
+    base = max(revenue) if revenue else (max(eps) if eps else None)
+    if base is None:
+        return out
+    period_year = {"0y": base + 1, "+1y": base + 2}
+
+    def _estim(df, target):
+        if df is None or getattr(df, "empty", True):
+            return
+        for period, yr in period_year.items():
+            if period in df.index:
+                row = df.loc[period]
+                avg = _num(row.get("avg"))
+                if avg is None:
+                    continue
+                target[yr] = {"avg": avg, "low": _num(row.get("low")),
+                              "high": _num(row.get("high")),
+                              "n": _num(row.get("numberOfAnalysts"))}
+
+    try:
+        _estim(t.revenue_estimate, out["revenue"])
+    except Exception:
+        pass
+    try:
+        _estim(t.earnings_estimate, out["eps"])
+    except Exception:
+        pass
+    try:
+        pt = t.analyst_price_targets or {}
+        out["price_target"] = {k: _num(v) for k, v in pt.items()
+                               if _num(v) is not None}
+    except Exception:
+        pass
+    return out
+
+
 def fetch(ticker: str) -> dict:
     t = yf.Ticker(ticker)
     try:
@@ -160,8 +202,11 @@ def fetch(ticker: str) -> dict:
     except Exception:
         pass
 
+    forecast = _fetch_forecast(t, revenue, eps)
+
     data = {
         "ticker": ticker,
+        "forecast": forecast,
         "series": {
             "revenue": revenue, "net_income": net_income, "gross_profit": gross,
             "operating_income": op_income, "ebitda": ebitda, "eps": eps,
@@ -189,6 +234,10 @@ def get_history(ticker: str, force: bool = False) -> dict:
                 # klucze lat z JSON sa stringami -> rzutujemy na int
                 for k, s in cached["series"].items():
                     cached["series"][k] = {int(y): v for y, v in s.items()}
+                fc = cached.get("forecast", {})
+                for k in ("revenue", "eps"):
+                    if isinstance(fc.get(k), dict):
+                        fc[k] = {int(y): v for y, v in fc[k].items()}
                 return cached
         except Exception:
             pass

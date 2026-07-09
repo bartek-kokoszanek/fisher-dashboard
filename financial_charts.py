@@ -72,7 +72,7 @@ def _specs(hist: dict, row: dict) -> list[tuple]:
     out = []
 
     _, rev = h.sorted_items(s.get("revenue"))
-    out.append(("Revenue", "Przychody rok po roku (bar + linia).",
+    out.append(("Revenue", "Przychody: historia + prognoza analityków (słupki kreskowane).",
                 revenue_chart.fig_revenue(hist),
                 f"CAGR 5Y: {h.pct(h.cagr(rev[-5:]))} · CAGR 10Y: {h.pct(h.cagr(rev[-10:]))}"))
 
@@ -120,7 +120,7 @@ def _specs(hist: dict, row: dict) -> list[tuple]:
                 eps_chart.fig_shares(hist), badge))
 
     _, eps = h.sorted_items(s.get("eps"))
-    out.append(("EPS", "Zysk na akcję.",
+    out.append(("EPS", "Zysk na akcję: historia + prognoza analityków (linia kropkowana).",
                 eps_chart.fig_eps(hist), f"CAGR: {h.pct(h.cagr(eps))}"))
 
     out.append(("Book Value / Share", "Wartość księgowa na akcję.",
@@ -200,8 +200,9 @@ def load_interpret(ticker: str) -> dict | None:
 
 def render(ticker: str, row: dict):
     st.subheader("📊 Financial Charts")
-    st.caption("Wykresy finansowe z danych Yahoo Finance. Uwaga: darmowe źródło "
-               "daje zwykle ~5 lat rocznych sprawozdań (dywidendy i P/E — dłużej). "
+    st.caption("Wykresy finansowe z danych Yahoo Finance. ~5 lat historii + "
+               "prognoza analityków na 2 kolejne lata dla przychodów i EPS "
+               "(darmowe dane nie sięgają dalej). Dywidendy i P/E — dłużej. "
                "Brakujące dane pokazywane są jako komunikat, nie błąd.")
 
     with st.spinner("Ładuję historię finansową..."):
