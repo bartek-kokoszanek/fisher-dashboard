@@ -41,6 +41,9 @@ SCORERS = {
     "fcf_margin":         lambda x: _band(x, 0.00, 0.25),
     "low_dilution":       lambda x: _band_inv(x, -0.01, 0.05),  # rozwadnianie karane
     "low_leverage":       lambda x: _band_inv(x, 0.0, 2.0),     # D/E: 0 -> 100, 2+ -> 0
+    # metryki dodatkowe dla strategii guru (gurus.py):
+    "value_pe":           lambda x: None if (x is None or x <= 0) else _band_inv(x, 5, 40),
+    "momentum":           lambda x: _band(x, -0.20, 0.50),      # zwrot 6-mies.
 }
 
 # Ktora surowa metryka zasila ktory scorer
@@ -55,23 +58,32 @@ RAW_KEY = {
     "fcf_margin": "fcf_margin",
     "low_dilution": "dilution",
     "low_leverage": "debt_to_equity",
+    "value_pe": "trailing_pe",
+    "momentum": "return_6m",
 }
 
+# metryki bez sensu dla bankow/ubezpieczycieli (inna struktura sprawozdan)
+FIN_SKIP = {"rnd_intensity", "gross_margin", "revenue_cagr", "revenue_growth_yoy"}
 
-def compute_score(raw: dict) -> dict:
+
+def compute_score(raw: dict, weights: dict | None = None) -> dict:
     """Zwraca {'score': float, 'subscores': {...}, 'coverage': float}.
 
+    weights: slownik metryka->waga; domyslnie config.WEIGHTS (strategia Fishera).
+    Strategie innych inwestorow (gurus.py) podaja wlasne wagi na tym samym
+    zestawie metryk (+ value_pe, momentum).
     coverage = jaki % wagi udalo sie faktycznie policzyc (brak danych ->
     metryka pomijana, a wagi renormalizowane). Nizsza coverage = mniej ufny wynik.
     """
+    weights = weights or config.WEIGHTS
     subscores = {}
     weighted_sum = 0.0
     weight_used = 0.0
     is_fin = raw.get("is_financial", False)
 
-    for metric, weight in config.WEIGHTS.items():
+    for metric, weight in weights.items():
         # Banki: R&D i marze brutto nie maja sensu -> pomijamy te metryki
-        if is_fin and metric in ("rnd_intensity", "gross_margin", "revenue_cagr", "revenue_growth_yoy"):
+        if is_fin and metric in FIN_SKIP:
             continue
 
         raw_val = raw.get(RAW_KEY[metric])
@@ -83,10 +95,8 @@ def compute_score(raw: dict) -> dict:
         weighted_sum += score * weight
         weight_used += weight
 
-    total_weight = sum(
-        w for m, w in config.WEIGHTS.items()
-        if not (is_fin and m in ("rnd_intensity", "gross_margin", "revenue_cagr", "revenue_growth_yoy"))
-    )
+    total_weight = sum(w for m, w in weights.items()
+                       if not (is_fin and m in FIN_SKIP))
 
     final = round(weighted_sum / weight_used, 1) if weight_used else None
     coverage = round(100 * weight_used / total_weight, 0) if total_weight else 0
@@ -98,7 +108,7 @@ def verdict(score) -> str:
     if score is None:
         return "brak danych"
     if score >= 75:
-        return "Silny kandydat Fishera"
+        return "Silny kandydat strategii"
     if score >= 60:
         return "Wart obserwacji"
     if score >= 45:

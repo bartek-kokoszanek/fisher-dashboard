@@ -155,6 +155,15 @@ def fetch_raw(ticker: str) -> dict:
         # yfinance podaje w procentach
         debt_to_equity = info.get("debtToEquity") / 100.0
 
+    # zwrot ~6-miesieczny (momentum dla strategii typu Simons)
+    return_6m = None
+    try:
+        hist = t.history(period="7mo")["Close"].dropna()
+        if len(hist) >= 100:
+            return_6m = float(hist.iloc[-1] / hist.iloc[0] - 1)
+    except Exception:
+        pass
+
     price = info.get("currentPrice") or info.get("regularMarketPrice")
     target_mean = info.get("targetMeanPrice")
     target_upside = None
@@ -177,6 +186,7 @@ def fetch_raw(ticker: str) -> dict:
         "recommendation_mean": info.get("recommendationMean"),
         "recommendation_key": info.get("recommendationKey"),
         "trailing_pe": info.get("trailingPE"),
+        "return_6m": return_6m,
         "is_financial": ticker in config.FINANCIALS or (info.get("sector") == "Financial Services"),
         # metryki wejsciowe do scoringu:
         "revenue_cagr": rev_cagr,
@@ -204,9 +214,9 @@ def get(ticker: str, max_age_hours: float = 24.0, force: bool = False) -> dict:
                 cached = json.load(f)
             ts = datetime.fromisoformat(cached["fetched_at"])
             age = (datetime.now(timezone.utc) - ts).total_seconds() / 3600
-            # "target_mean" in cached = wersjonowanie schematu: starsze cache
-            # (sprzed kolumn analitykow) sa odswiezane automatycznie
-            if age <= max_age_hours and "target_mean" in cached:
+            # "return_6m" in cached = wersjonowanie schematu: starsze cache
+            # (sprzed momentum/kolumn analitykow) sa odswiezane automatycznie
+            if age <= max_age_hours and "return_6m" in cached:
                 return cached
         except Exception:
             pass

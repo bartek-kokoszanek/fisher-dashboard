@@ -202,16 +202,37 @@ def research(ticker: str, name: str, market: str, website: str | None = None,
 
     from google import genai
     from google.genai import types
+    from ai_research import friendly_429
     client = genai.Client(api_key=key)
-    resp = client.models.generate_content(
-        model=DEEP_MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            tools=[types.Tool(google_search=types.GoogleSearch())],
-            # UWAGA: grounding nie laczy sie z wymuszonym JSON (response_mime_type),
-            # dlatego JSON egzekwujemy promptem i parsujemy defensywnie.
-        ),
-    )
+
+    def _generate():
+        return client.models.generate_content(
+            model=DEEP_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+                # UWAGA: grounding nie laczy sie z wymuszonym JSON
+                # (response_mime_type) — JSON egzekwujemy promptem
+                # i parsujemy defensywnie.
+            ),
+        )
+
+    try:
+        resp = _generate()
+    except Exception as e:
+        msg = friendly_429(e)
+        if not msg:
+            raise
+        import time
+        time.sleep(20)  # limit minutowy? jedna proba ponowienia
+        try:
+            resp = _generate()
+        except Exception as e2:
+            raise RuntimeError(
+                (friendly_429(e2) or str(e2)) +
+                " Uwaga: wyszukiwarka (grounding) ma osobny, cisniejszy limit "
+                "darmowy niz zwykle zapytania."
+            ) from e2
 
     data = _extract_json(resp.text or "")
 

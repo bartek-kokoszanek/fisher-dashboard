@@ -42,33 +42,47 @@ DIMENSIONS = {
     "long_term_focus": "Nastawienie dlugoterminowe vs krotkoterminowe (pkt 12)",
 }
 
-SYSTEM = (
-    "Jestes analitykiem inwestycyjnym stosujacym metode Philipa Fishera "
-    "z ksiazki 'Common Stocks and Uncommon Profits'. Oceniasz JAKOSCIOWE "
-    "aspekty spolki, ktorych nie widac w liczbach. Badz konkretny, ostrozny "
-    "i szczery co do niepewnosci. Jesli czegos nie wiesz, obniz confidence."
-)
-
 PROMPT_TMPL = """Ocen spolke: {name} ({ticker}, gielda {market}).
 
-Dla kazdego z ponizszych wymiarow Fishera przyznaj wynik 0-100
+Dla kazdego z ponizszych wymiarow przyznaj wynik 0-100
 (0 = bardzo slabo, 50 = przecietnie, 100 = wybitnie) oraz krotkie uzasadnienie:
 
 {dims}
+
+Nastepnie wypisz najwieksze ZALETY i najwieksze WADY/RYZYKA spolki
+(3-6 pozycji kazda, konkretne, po polsku, przez pryzmat Twojej filozofii).
 
 Zwroc WYLACZNIE poprawny JSON w formacie:
 {{
   "scores": {{ "management_quality": <int>, "integrity_candor": <int>,
               "moat": <int>, "innovation_rnd": <int>, "long_term_focus": <int> }},
   "notes": {{ "management_quality": "<1 zdanie>", ... }},
-  "summary": "<2-3 zdania podsumowania inwestycyjnego wg Fishera>",
+  "strengths": ["<konkretna zaleta>", "..."],
+  "weaknesses": ["<konkretna wada lub ryzyko>", "..."],
+  "summary": "<2-3 zdania podsumowania inwestycyjnego>",
   "confidence": <0-100, jak pewny jestes tej oceny>
 }}
 Bez tekstu przed ani po JSON."""
 
 
-def _cache_path(ticker: str) -> str:
+def friendly_429(e: Exception) -> str | None:
+    """Czytelny komunikat PL dla przekroczonego limitu darmowego Gemini."""
+    s = str(e)
+    if "429" in s or "RESOURCE_EXHAUSTED" in s or "rate limit" in s.lower():
+        return ("Wyczerpany darmowy limit Gemini (na minute lub na dzien). "
+                "Odczekaj ~1 minute i sprobuj ponownie. Limit dzienny odnawia "
+                "sie o polnocy czasu pacyficznego (ok. 9:00 rano w Polsce).")
+    return None
+
+
+def _cache_path(ticker: str, guru: str = "fisher") -> str:
     os.makedirs(config.CACHE_DIR, exist_ok=True)
+    return os.path.join(config.CACHE_DIR,
+                        f"ai_{guru}_{ticker.replace('.', '_')}.json")
+
+
+def _legacy_path(ticker: str) -> str:
+    # pliki sprzed strategii guru (traktowane jako Fisher)
     return os.path.join(config.CACHE_DIR, f"ai_{ticker.replace('.', '_')}.json")
 
 
@@ -90,8 +104,11 @@ def _extract_json(text: str) -> dict:
     return json.loads(text[start:end + 1])
 
 
-def research(ticker: str, name: str, market: str, force: bool = False) -> dict:
-    path = _cache_path(ticker)
+def research(ticker: str, name: str, market: str, guru: str = "fisher",
+             force: bool = False) -> dict:
+    import gurus
+
+    path = _cache_path(ticker, guru)
     if not force and os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -105,6 +122,7 @@ def research(ticker: str, name: str, market: str, force: bool = False) -> dict:
 
     dims = "\n".join(f"- {k}: {v}" for k, v in DIMENSIONS.items())
     prompt = PROMPT_TMPL.format(name=name, ticker=ticker, market=market, dims=dims)
+    system = gurus.system_prompt(guru)
 
     def _call(json_mode: bool):
         kwargs = dict(
@@ -114,7 +132,7 @@ def research(ticker: str, name: str, market: str, force: bool = False) -> dict:
             # i reasoning_effort=low.
             max_tokens=8192,
             messages=[
-                {"role": "system", "content": SYSTEM},
+                {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
             ],
             extra_body={"reasoning_effort": "low"},
@@ -123,7 +141,19 @@ def research(ticker: str, name: str, market: str, force: bool = False) -> dict:
             kwargs["response_format"] = {"type": "json_object"}
         return client.chat.completions.create(**kwargs)
 
-    resp = _call(json_mode=True)
+    try:
+        resp = _call(json_mode=True)
+    except Exception as e:
+        msg = friendly_429(e)
+        if not msg:
+            raise
+        # limit minutowy? jedna proba ponowienia po 20 s
+        import time
+        time.sleep(20)
+        try:
+            resp = _call(json_mode=True)
+        except Exception as e2:
+            raise RuntimeError(friendly_429(e2) or str(e2)) from e2
     text = resp.choices[0].message.content or ""
     if not text.strip():
         # retry bez wymuszonego JSON — niektore modele zwracaja pusto z json_object
@@ -137,6 +167,7 @@ def research(ticker: str, name: str, market: str, force: bool = False) -> dict:
         )
     data = _extract_json(text)
     data["ticker"] = ticker
+    data["guru"] = guru
     data["model"] = MODEL
     data["researched_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -150,17 +181,23 @@ def research(ticker: str, name: str, market: str, force: bool = False) -> dict:
     return data
 
 
-def load_cached(ticker: str) -> dict | None:
-    path = _cache_path(ticker)
+def load_cached(ticker: str, guru: str = "fisher") -> dict | None:
+    path = _cache_path(ticker, guru)
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
+    if guru == "fisher":  # migracja: stare pliki sprzed strategii
+        legacy = _legacy_path(ticker)
+        if os.path.exists(legacy):
+            with open(legacy, "r", encoding="utf-8") as f:
+                return json.load(f)
     return None
 
 
 if __name__ == "__main__":
     import sys
     tk = sys.argv[1] if len(sys.argv) > 1 else "AAPL"
+    guru = sys.argv[2] if len(sys.argv) > 2 else "fisher"
     print(json.dumps(research(tk, config.NAMES.get(tk, tk),
-                              config.market_of(tk), force=True),
+                              config.market_of(tk), guru=guru, force=True),
                      ensure_ascii=False, indent=2))

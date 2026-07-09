@@ -1,10 +1,47 @@
-# Fisher Dashboard — typowanie spółek Nasdaq + GPW
+# Dashboard inwestora — typowanie spółek Nasdaq + GPW
 
-Dashboard do rankingowania spółek według 15 zasad **Philipa Fishera**
-(*Common Stocks and Uncommon Profits*). Łączy mierzalne proxy fundamentalne
-z jakościową oceną AI (Claude).
+Dashboard rankingujący spółki według wybranej **strategii znanego inwestora**
+(8 profili: Fisher, Lynch, Burry, Buffett, Dalio, Simons, Ackman, Soros).
+Łączy mierzalne proxy fundamentalne z jakościową oceną AI.
 
 > ⚠️ Narzędzie edukacyjne — **nie stanowi porady inwestycyjnej**.
+> Strategie to przybliżenia filozofii inwestorów, nie ich prawdziwe algorytmy.
+
+---
+
+## Strategie inwestorów
+
+Przełącznik **🧭 Strategia inwestora** w panelu bocznym zmienia wagi metryk
+w scoringu ilościowym oraz „osobowość" researchu AI. Profile w [gurus.py](gurus.py)
+(edytowalne — każdy to wagi sumujące się do 100 + prompt):
+
+| Strategia | Akcent |
+|---|---|
+| Philip Fisher | wzrost sprzedaży, R&D, marże, jakość zarządu |
+| Peter Lynch | wzrost w rozsądnej cenie (GARP), niskie C/Z przy wzroście |
+| Michael Burry | głęboka wartość: tanio wg C/Z i FCF, twardy bilans |
+| Warren Buffett | fosa, wysokie ROE bez długu, przewidywalne zyski |
+| Ray Dalio | odporność: niski lewar, stabilne przepływy |
+| James Simons* | momentum 6-mies. + dyscyplina liczb |
+| Bill Ackman | skoncentrowane, proste biznesy z silnym FCF |
+| George Soros* | momentum + zwroty nastrojów (refleksywność) |
+
+\* Simons (quant/HFT) i Soros (makro) są z natury nieodtwarzalni z danych
+fundamentalnych — te profile to świadome uproszczenia.
+
+---
+
+## Segmenty rynku
+
+Filtr **Segment** w panelu bocznym: `Nasdaq`, `Nasdaq-AI` (kuratorowany
+podzbiór ~36 spółek AI — edytuj w [gpw_indices.py](gpw_indices.py)), `WIG20`,
+`mWIG40`, `sWIG80` oraz `WIG-pozostałe` (spółki GPW spoza indeksów — ładowane
+leniwie przy pierwszym wybraniu, to potrwa). Bazowe uniwersum = cały Nasdaq-24
++ komplet WIG20+mWIG40+sWIG80 (~140 spółek GPW).
+
+Składy indeksów zmieniają się kwartalnie — wygenerowane 2026-07-09; aby
+odświeżyć, uruchom ponownie generator (skrypt w historii projektu) lub popraw
+listy ręcznie w `gpw_indices.py`.
 
 ---
 
@@ -83,8 +120,14 @@ $env:GEMINI_API_KEY = "..."
 ```
 
 W panelu **Analiza spółki** kliknij *🤖 Uruchom research AI* — model oceni wymiary
-jakościowe (zarząd, fosa, R&D, uczciwość) i podbije/obniży wynik łączny. Wyniki
-cache'owane w `data/ai_<ticker>.json`.
+jakościowe (zarząd, fosa, R&D, uczciwość) **przez pryzmat wybranej strategii**
+i wypisze **Największe zalety** oraz **Największe wady i ryzyka** od myślników.
+Wyniki cache'owane per strategia w `data/ai_<strategia>_<ticker>.json`.
+
+**Limit darmowego Gemini:** przy przekroczeniu (błąd 429) aplikacja pokaże
+czytelny komunikat i sama ponowi próbę po 20 s. Limit dzienny odnawia się
+o północy czasu pacyficznego (~9:00 rano w Polsce). Grounding (deep research)
+ma osobny, ciaśniejszy limit niż zwykłe zapytania.
 
 **Inny provider.** Kod używa klienta OpenAI, więc zadziała z dowolnym API zgodnym z
 OpenAI. Przekieruj go zmiennymi środowiskowymi:
@@ -174,7 +217,9 @@ fisher-dashboard/
 ├── app.py            # dashboard Streamlit (UI)
 ├── config.py         # bazowe uniwersum spółek + wagi
 ├── data_fetch.py     # pobieranie fundamentów + analitycy (yfinance) + cache
-├── fisher_score.py   # scoring ilościowy 0–100
+├── fisher_score.py   # scoring ilościowy 0–100 (wagi parametryczne)
+├── gurus.py          # 8 strategii inwestorów (wagi + prompty AI)
+├── gpw_indices.py    # składy WIG20/mWIG40/sWIG80 + lista Nasdaq-AI
 ├── ai_research.py    # szybka ocena jakościowa AI (Gemini / OpenAI-compatible)
 ├── research_deep.py  # deep research: sentyment + YouTube + IR (Gemini grounding)
 ├── universe.py       # pełna pula symboli Nasdaq+GPW (wyszukiwarka)

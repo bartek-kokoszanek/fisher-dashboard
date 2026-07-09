@@ -14,9 +14,12 @@ import ai_research
 import config
 import data_fetch
 import fisher_score
+import gpw_indices
+import gurus
 import research_deep
 import universe
 import watchlists
+from gpw_tickers import GPW_TICKERS
 
 # Na Streamlit Community Cloud klucz API wpisujesz w panelu Secrets. Przenosimy go
 # do zmiennej srodowiskowej, bo ai_research.py czyta klucz z os.environ.
@@ -45,12 +48,13 @@ METRIC_LABELS = {
 }
 
 
-def build_row(raw: dict) -> dict:
-    """Surowe dane -> wiersz rankingu (scoring + ocena AI z cache)."""
+def build_row(raw: dict, guru_key: str) -> dict:
+    """Surowe dane -> wiersz rankingu wg wybranej strategii (+ ocena AI z cache)."""
     if "error" in raw:
         return {**raw, "score": None, "coverage": 0}
-    res = fisher_score.compute_score(raw)
-    ai = ai_research.load_cached(raw["ticker"])
+    weights = gurus.get(guru_key)["weights"]
+    res = fisher_score.compute_score(raw, weights)
+    ai = ai_research.load_cached(raw["ticker"], guru_key)
     quality = ai.get("quality_score") if ai else None
     # Wynik laczny: 70% ilosciowy + 30% jakosciowy (jesli jest research)
     if res["score"] is not None and quality is not None:
@@ -69,9 +73,9 @@ def build_row(raw: dict) -> dict:
 
 
 @st.cache_data(show_spinner=False)
-def load_universe(force: bool):
-    rows = data_fetch.get_many(config.all_tickers(), force=force)
-    return [build_row(raw) for raw in rows]
+def load_raws(force: bool):
+    """Surowe dane bazowego uniwersum (cache Streamlita + cache plikowy 24h)."""
+    return data_fetch.get_many(config.all_tickers(), force=force)
 
 
 @st.cache_data(show_spinner=False, ttl=24 * 3600)
@@ -97,16 +101,31 @@ def fmt_pct(x):
 
 
 # ---------------- Sidebar ----------------
-st.sidebar.title("📈 Fisher Dashboard")
-st.sidebar.caption("Typowanie spolek Nasdaq + GPW wg 15 zasad Philipa Fishera")
+st.sidebar.title("📈 Dashboard inwestora")
+st.sidebar.caption("Typowanie spolek Nasdaq + GPW wg strategii znanych inwestorow")
 
-markets = st.sidebar.multiselect("Gielda", ["Nasdaq", "GPW"], default=["Nasdaq", "GPW"])
+guru_key = st.sidebar.selectbox(
+    "🧭 Strategia inwestora", gurus.options(),
+    format_func=lambda k: gurus.get(k)["name"],
+)
+st.sidebar.caption(gurus.get(guru_key)["desc"])
+
+segments = st.sidebar.multiselect(
+    "Segment", list(gpw_indices.ALL_SEGMENTS),
+    default=["Nasdaq", "WIG20", "mWIG40"],
+    help="Nasdaq-AI = kuratorowany podzbior spolek AI. WIG-pozostale = spolki "
+         "GPW spoza WIG20/mWIG40/sWIG80 (pierwsze zaladowanie potrwa).",
+)
 min_cov = st.sidebar.slider("Min. pokrycie danych (%)", 0, 100, 40, step=10)
 
 if st.sidebar.button("🔄 Odswiez dane z Yahoo (wolne)"):
-    load_universe.clear()
-    with st.spinner("Pobieram fundamenty..."):
-        load_universe(force=True)
+    load_raws.clear()
+    prog = st.sidebar.progress(0.0, text="Pobieram fundamenty...")
+    data_fetch.get_many(
+        config.all_tickers(), force=True,
+        progress=lambda i, n, tk: prog.progress(i / n, text=f"{tk} ({i}/{n})"),
+    )
+    prog.empty()
     st.sidebar.success("Zaktualizowano.")
 
 st.sidebar.divider()
@@ -161,29 +180,50 @@ else:
 st.sidebar.caption(f"Model: {ai_research.MODEL}")
 
 # ---------------- Dane ----------------
-data = load_universe(force=False)
-# spolki dodane z wyszukiwarki (poza bazowym uniwersum) — trzymane w sesji
-extra_rows = st.session_state.setdefault("extra_rows", {})
-known = {r["ticker"] for r in data}
+raws = load_raws(force=False)
+# spolki spoza bazowego uniwersum (wyszukiwarka, listy, WIG-pozostale) — surowe
+extra_raws = st.session_state.setdefault("extra_raws", {})
+known = {r["ticker"] for r in raws}
 
 # spolki zapisane na listach, ktorych nie ma w bazowym uniwersum — dociagnij
 missing_listed = [t for t in watchlists.all_listed_tickers(wl)
-                  if t not in known and t not in extra_rows]
+                  if t not in known and t not in extra_raws]
 if missing_listed:
     with st.spinner(f"Pobieram spolki z Twoich list ({len(missing_listed)})..."):
         for t in missing_listed:
-            extra_rows[t] = build_row(data_fetch.get(t))
+            extra_raws[t] = data_fetch.get(t)
 
-data = data + [r for t, r in extra_rows.items() if t not in known]
+# segment WIG-pozostale: leniwe dociagniecie spolek spoza indeksow
+if "WIG-pozostale" in segments:
+    rest = [t for t in GPW_TICKERS
+            if "WIG-pozostale" in gpw_indices.segments_of(t)
+            and t not in known and t not in extra_raws]
+    if rest:
+        st.info(f"Segment WIG-pozostale: pobieram {len(rest)} spolek spoza "
+                "indeksow — pierwszy raz moze potrwac kilka minut.")
+        prog = st.progress(0.0)
+        for i, t in enumerate(rest):
+            extra_raws[t] = data_fetch.get(t)
+            prog.progress((i + 1) / len(rest), text=f"{t} ({i + 1}/{len(rest)})")
+        prog.empty()
+
+all_raws = raws + [r for t, r in extra_raws.items() if t not in known]
+data = [build_row(r, guru_key) for r in all_raws]
 df = pd.DataFrame(data)
-df = df[df["market"].isin(markets)]
+df["segments"] = df["ticker"].map(gpw_indices.segments_of)
+df["segment"] = df["ticker"].map(gpw_indices.segment_label)
+_sel = set(segments)
+df = df[df["segments"].map(lambda s: bool(s & _sel))]
 df = df[df["coverage"].fillna(0) >= min_cov]
 if wl_filter != "Wszystkie":
     df = df[df["ticker"].isin(set(wl["lists"].get(wl_filter, [])))]
 
 # ---------------- Ranking ----------------
-st.title("Ranking Fishera")
-st.caption("Wynik 0-100. Laczy proxy ilosciowe (fundamenty) z ocena jakosciowa AI, jesli dostepna.")
+_g = gurus.get(guru_key)
+st.title(f"Ranking wg strategii: {_g['name']}")
+st.caption(f"{_g['desc']} · Wynik 0-100 laczy proxy ilosciowe (fundamenty) "
+           "z ocena jakosciowa AI, jesli dostepna. Strategie to edukacyjne "
+           "przyblizenia filozofii inwestorow, nie ich prawdziwe algorytmy.")
 
 view = df.sort_values("combined", ascending=False, na_position="last").copy()
 
@@ -206,10 +246,10 @@ def _rec_label(r):
 
 view["rec_label"] = view.apply(_rec_label, axis=1)
 
-table = view[["ticker", "name", "market", "price", "target_mean",
+table = view[["ticker", "name", "segment", "price", "target_mean",
               "target_upside_pct", "analyst_count", "rec_label", "trailing_pe",
               "market_cap", "combined", "coverage", "verdict"]].rename(columns={
-    "ticker": "Symbol", "name": "Spolka", "market": "Gielda", "price": "Cena",
+    "ticker": "Symbol", "name": "Spolka", "segment": "Segment", "price": "Cena",
     "target_mean": "Cena docelowa", "target_upside_pct": "Do celu %",
     "analyst_count": "Rekom.", "rec_label": "Ocena analitykow",
     "trailing_pe": "C/Z", "market_cap": "Kap. rynk.",
@@ -265,8 +305,8 @@ searched = st.selectbox(
 if searched and searched not in set(df["ticker"]):
     with st.spinner(f"Pobieram i punktuje {searched}..."):
         raw = data_fetch.get(searched)
-        new_row = build_row(raw)
-        st.session_state["extra_rows"][searched] = new_row
+        st.session_state["extra_raws"][searched] = raw
+        new_row = build_row(raw, guru_key)
     if "error" in new_row:
         st.warning(f"Nie udalo sie pobrac danych dla {searched}: {new_row['error']}")
     elif (new_row.get("coverage") or 0) < min_cov:
@@ -326,16 +366,16 @@ if choices:
                    f"Kapitalizacja: {row.get('market_cap') or '—'} {row.get('currency') or ''}")
 
     with right:
-        st.subheader("Ocena jakosciowa (Fisher)")
-        ai = ai_research.load_cached(pick)
+        st.subheader(f"Ocena jakosciowa ({gurus.get(guru_key)['name']})")
+        ai = ai_research.load_cached(pick, guru_key)
         if st.button("🤖 Uruchom research AI dla tej spolki",
                      disabled=not ai_research.available()):
-            with st.spinner("Model analizuje jakosc..."):
+            with st.spinner(f"Model ocenia przez pryzmat: {gurus.get(guru_key)['name']}..."):
                 try:
                     ai = ai_research.research(pick, row.get("name", pick),
-                                              row.get("market", ""), force=True)
-                    load_universe.clear()
-                    st.success("Gotowe. Odswiez ranking, by uwzglednic wynik.")
+                                              row.get("market", ""),
+                                              guru=guru_key, force=True)
+                    st.rerun()
                 except Exception as e:
                     st.error(f"Blad research: {e}")
         if ai:
@@ -348,14 +388,26 @@ if choices:
             st.info(ai.get("summary", ""))
             st.caption(f"Model: {ai.get('model')} · pewnosc: {ai.get('confidence')}%")
         else:
-            st.caption("Brak researchu AI. Uruchom przyciskiem powyzej.")
+            st.caption("Brak researchu AI dla tej strategii. Uruchom przyciskiem powyzej.")
+
+    # --- Najwieksze zalety / wady (z researchu AI) ---
+    if ai and (ai.get("strengths") or ai.get("weaknesses")):
+        zc, wc = st.columns(2)
+        with zc:
+            st.subheader("✅ Najwieksze zalety")
+            for s in ai.get("strengths", []):
+                st.markdown(f"- {s}")
+        with wc:
+            st.subheader("⚠️ Najwieksze wady i ryzyka")
+            for w in ai.get("weaknesses", []):
+                st.markdown(f"- {w}")
 
     # ---------------- Deep research ----------------
     st.divider()
     st.subheader("🔎 Deep research: sentyment rynku + YouTube + relacje inwestorskie")
     st.caption(f"Analiza ostatnich {research_deep.MONTHS_BACK} miesiecy: artykuly "
                "(Google Search), filmy z YouTube (tytuly + transkrypty, gdy dostepne) "
-               "i raporty z dzialu IR spolki. Sentyment NIE wplywa na Wynik Fishera. "
+               "i raporty z dzialu IR spolki. Sentyment NIE wplywa na Wynik strategii. "
                "Trwa 1-3 min.")
     deep = research_deep.load_cached(pick)
     if st.button("🔎 Uruchom deep research dla tej spolki",
@@ -408,4 +460,5 @@ else:
 
 st.divider()
 st.caption("⚠️ Narzedzie edukacyjne — nie stanowi porady inwestycyjnej. "
-           "Dane: Yahoo Finance (yfinance). Metoda: Philip Fisher, 'Common Stocks and Uncommon Profits'.")
+           "Dane: Yahoo Finance (yfinance). Strategie inwestorow sa edukacyjnymi "
+           "przyblizeniami ich filozofii, nie prawdziwymi algorytmami.")

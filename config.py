@@ -14,28 +14,18 @@ NASDAQ = [
     "PEP", "CSCO", "INTU", "NOW", "PANW", "SNPS", "CDNS", "REGN",
 ]
 
-# --- Uniwersum GPW (blue chipy WIG20/mWIG40) ---
-GPW = [
-    "PKN.WA",  # Orlen
-    "PKO.WA",  # PKO BP
-    "PEO.WA",  # Pekao
-    "PZU.WA",  # PZU
-    "KGH.WA",  # KGHM
-    "CDR.WA",  # CD Projekt
-    "DNP.WA",  # Dino Polska
-    "ALE.WA",  # Allegro
-    "LPP.WA",  # LPP
-    "CPS.WA",  # Cyfrowy Polsat
-    "MBK.WA",  # mBank
-    "OPL.WA",  # Orange Polska
-    "KTY.WA",  # Grupa Kety
-    "BDX.WA",  # Budimex
-    "ATT.WA",  # Grupa Azoty (uwaga: dane bywaja niepelne)
-    "TXT.WA",  # Text (dawniej LiveChat)
-]
+# --- Uniwersum GPW: wszystkie spolki z WIG20 + mWIG40 + sWIG80 (~140) ---
+# Sklady indeksow w gpw_indices.py (generowane; aktualizacja: patrz README).
+# Spolki spoza indeksow ("WIG-pozostale") dociagane sa leniwie w aplikacji.
+import gpw_indices as _gi
 
-# Mapowanie tickera -> czytelna nazwa (uzupelniane tez automatycznie z danych)
+GPW = sorted(_gi.WIG20 | _gi.MWIG40 | _gi.SWIG80)
+
+# Mapowanie tickera -> czytelna nazwa: baza z katalogu GPW + ladniejsze nadpisania
+from gpw_tickers import GPW_TICKERS as _GPW_NAMES
+
 NAMES = {
+    **_GPW_NAMES,
     "PKN.WA": "Orlen", "PKO.WA": "PKO BP", "PEO.WA": "Bank Pekao",
     "PZU.WA": "PZU", "KGH.WA": "KGHM", "CDR.WA": "CD Projekt",
     "DNP.WA": "Dino Polska", "ALE.WA": "Allegro", "LPP.WA": "LPP",
