@@ -95,18 +95,19 @@ def yt_research(name: str, ticker: str, market: str) -> dict:
                  "skip_download": True, "noprogress": True}
     try:
         with YoutubeDL(flat_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch12:{query}", download=False)
+            info = ydl.extract_info(f"ytsearch30:{query}", download=False)
         entries = [e for e in (info.get("entries") or []) if e]
     except Exception as e:
         out["note"] = f"Wyszukiwanie YouTube nie powiodlo sie: {e}"
         return out
 
-    # plaskie wyniki nie maja daty publikacji — dociagamy metadane top wynikow
+    # plaskie wyniki nie maja daty publikacji — dociagamy metadane
     full_opts = {"quiet": True, "no_warnings": True, "skip_download": True,
                  "noprogress": True}
     checked = 0
     for e in entries:
-        if checked >= 8 or len(out["videos"]) >= 6:
+        # sprawdzamy wiecej wynikow, by zlapac WSZYSTKIE z ostatnich 6 mies.
+        if checked >= 30 or len(out["videos"]) >= 25:
             break
         vid = e.get("id")
         if not vid:
@@ -131,6 +132,9 @@ def yt_research(name: str, ticker: str, market: str) -> dict:
             "date": dt.date().isoformat(),
             "views": meta.get("view_count"),
         })
+
+    # od najnowszego do najstarszego
+    out["videos"].sort(key=lambda v: v["date"], reverse=True)
 
     for v in out["videos"][:MAX_TRANSCRIPTS]:
         t = _yt_transcript(v["id"])
@@ -199,7 +203,7 @@ def research(ticker: str, name: str, market: str, website: str | None = None,
     yt = yt_research(name, ticker, market)
 
     yt_lines = []
-    for v in yt["videos"]:
+    for v in yt["videos"][:8]:  # do promptu bierzemy najnowsze 8 (pelna lista -> UI)
         line = f"- [{v['date']}] \"{v['title']}\" (kanal: {v['channel']}, {v.get('views') or '?'} wyswietlen)"
         yt_lines.append(line)
         if v["id"] in yt["transcripts"]:

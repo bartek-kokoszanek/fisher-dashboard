@@ -314,15 +314,18 @@ def _rec_label(r):
 
 
 view["rec_label"] = view.apply(_rec_label, axis=1)
+view["signal"] = view["combined"].map(
+    lambda s: f"{fisher_score.action_verdict(s)['emoji']} "
+              f"{fisher_score.action_verdict(s)['label']}")
 
 table = view[["ticker", "name", "segment", "price", "target_mean",
               "target_upside_pct", "analyst_count", "rec_label", "trailing_pe",
-              "market_cap", "combined", "coverage", "verdict"]].rename(columns={
+              "market_cap", "combined", "signal", "coverage"]].rename(columns={
     "ticker": "Symbol", "name": "Spolka", "segment": "Segment", "price": "Cena",
     "target_mean": "Cena docelowa", "target_upside_pct": "Do celu %",
     "analyst_count": "Rekom.", "rec_label": "Ocena analitykow",
     "trailing_pe": "C/Z", "market_cap": "Kap. rynk.",
-    "combined": "Wynik", "coverage": "Pokrycie %", "verdict": "Werdykt"})
+    "combined": "Wynik", "signal": "Sygnal", "coverage": "Pokrycie %"})
 
 
 def _upside_color(v):
@@ -348,8 +351,9 @@ st.dataframe(
     },
 )
 st.caption("Cena i cena docelowa w walucie notowan (Nasdaq: USD, GPW: PLN). "
-           "Rekom. = liczba analitykow pokrywajacych spolke; ocena 1=Strong Buy ... 5=Sell. "
-           "Dla czesci spolek GPW konsensus analitykow jest niedostepny.")
+           "Rekom. = liczba analitykow; ocena 1=Strong Buy ... 5=Sell. "
+           "Sygnal = decyzja wg wybranej strategii (Kupuj/Akumuluj/Trzymaj/Sprzedaj) "
+           "na podstawie Wyniku. Dla czesci spolek GPW konsensus analitykow niedostepny.")
 
 st.download_button(
     "⬇ Eksport watchlisty do TradingView (CSV tickerow)",
@@ -422,6 +426,19 @@ if choices:
     c2.metric("Ilosciowy", _num(row.get("score")))
     c3.metric("Jakosciowy (AI)", _num(row.get("quality")))
     c4.metric("Pokrycie danych", f"{row.get('coverage', 0):.0f}%")
+
+    # Sygnal inwestycyjny wg wybranej strategii (czy by kupil / sprzedal)
+    av = fisher_score.action_verdict(row.get("combined"))
+    guru_name = gurus.get(guru_key)["name"]
+    _msg = f"{av['emoji']} Wg strategii **{guru_name}**: **{av['label']}** — {av['desc']}."
+    if av["level"] in ("buy", "accumulate"):
+        st.success(_msg)
+    elif av["level"] == "hold":
+        st.warning(_msg)
+    elif av["level"] == "sell":
+        st.error(_msg)
+    else:
+        st.caption(_msg)
 
     # --- Rekomendacje analitykow z raportow GPW PWPA (tylko GPW) ---
     if pick.endswith(".WA"):

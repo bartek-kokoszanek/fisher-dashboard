@@ -122,3 +122,24 @@ def verdict(score) -> str:
     if score >= 45:
         return "Przecietny"
     return "Slaby wg kryteriow"
+
+
+def action_verdict(score) -> dict:
+    """Sygnal inwestycyjny wg Wyniku: czy dana strategia KUPILABY czy SPRZEDALA.
+
+    Zwraca {label, emoji, desc, level}. level: buy|accumulate|hold|sell|none.
+    """
+    if score is None:
+        return {"label": "Brak danych", "emoji": "⚪", "level": "none",
+                "desc": "za malo danych, by ocenic"}
+    if score >= 70:
+        return {"label": "KUPUJ", "emoji": "🟢", "level": "buy",
+                "desc": "dodalby / trzymalby w portfelu"}
+    if score >= 58:
+        return {"label": "AKUMULUJ", "emoji": "🟢", "level": "accumulate",
+                "desc": "kandydat do zakupu / dokupienia"}
+    if score >= 45:
+        return {"label": "TRZYMAJ", "emoji": "🟡", "level": "hold",
+                "desc": "neutralnie — obserwowalby, bez decyzji"}
+    return {"label": "SPRZEDAJ / UNIKAJ", "emoji": "🔴", "level": "sell",
+            "desc": "nie kupilby / rozwazylby usuniecie z portfela"}

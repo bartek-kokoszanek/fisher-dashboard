@@ -60,35 +60,58 @@ def key_count() -> int:
     return len(_keys())
 
 
-def _with_rotation(fn):
-    """Wywoluje fn(key) po kolei dla kazdego klucza; przy 429 probuje nastepny.
+def _is_transient(e) -> bool:
+    """Przejsciowy blad serwera (503/500/przeciazenie) — warto ponowic ten sam klucz."""
+    s = str(e).lower()
+    return any(x in s for x in ("503", "500", "unavailable", "overloaded",
+                                "high demand", "try again later", "internal error"))
 
-    Przy ostatnim kluczu i limicie minutowym robi jedna probe ponowienia po 20 s.
-    Inne bledy przekazuje od razu. Gdy wszystkie klucze wyczerpane -> RuntimeError.
+
+def _with_rotation(fn):
+    """Wywoluje fn(key) po kolei dla kazdego klucza z odpornoscia na bledy.
+
+    - Przejsciowy blad serwera (503/przeciazenie) -> retry TEGO SAMEGO klucza
+      z narastajaca przerwa (2 proby).
+    - Limit 429 -> rotacja na kolejny klucz; przy ostatnim retry po 20 s.
+    - Inny blad -> przekazany od razu. Wszystkie wyczerpane -> RuntimeError.
     """
     import time
     keys = _keys()
     if not keys:
         raise RuntimeError("Brak GEMINI_API_KEY (ani LLM_API_KEY) w srodowisku.")
-    last_429 = None
+    last_err = None
+    last_transient = False
     for i, key in enumerate(keys):
-        try:
-            return fn(key)
-        except Exception as e:
-            if not friendly_429(e):
-                raise
-            last_429 = e
-            if i == len(keys) - 1:  # ostatni klucz: sprobuj raz po przerwie (limit/min)
-                time.sleep(20)
-                try:
-                    return fn(key)
-                except Exception as e2:
-                    last_429 = e2
-            # w innym wypadku: rotacja na kolejny klucz (bez czekania)
+        for attempt in range(3):  # retry przejsciowych bledow na tym kluczu
+            try:
+                return fn(key)
+            except Exception as e:
+                if _is_transient(e) and attempt < 2:
+                    last_err, last_transient = e, True
+                    time.sleep(3 * (attempt + 1))  # 3 s, 6 s
+                    continue
+                if friendly_429(e):
+                    last_err, last_transient = e, False
+                    if i == len(keys) - 1:  # ostatni klucz: proba po przerwie
+                        time.sleep(20)
+                        try:
+                            return fn(key)
+                        except Exception as e2:
+                            last_err = e2
+                    break  # rotacja na kolejny klucz
+                if _is_transient(e):  # wyczerpano retry przejsciowe
+                    last_err, last_transient = e, True
+                    break
+                raise  # inny, trwaly blad
+    if last_transient:
+        raise RuntimeError(
+            "Serwer Gemini jest chwilowo przeciazony (503). To przejsciowe — "
+            "sprobuj ponownie za chwile. Mozesz tez ustawic stabilny model, "
+            "np. LLM_MODEL/DEEP_MODEL = 'gemini-2.5-flash'.")
     n = len(keys)
     raise RuntimeError(
         (f"Wszystkie klucze Gemini ({n}) wyczerpaly limit. " if n > 1 else "")
-        + (friendly_429(last_429) or "Limit Gemini wyczerpany.")
+        + (friendly_429(last_err) or "Limit Gemini wyczerpany.")
     )
 
 
