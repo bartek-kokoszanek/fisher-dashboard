@@ -90,6 +90,25 @@ def available() -> bool:
     return bool(_api_key())
 
 
+def _loads_lenient(s: str) -> dict:
+    """json.loads odporne na typowe usterki LLM (brak/nadmiar przecinkow).
+
+    Dekoder podaje dokladna pozycje brakujacego przecinka, wiec wstawiamy go
+    tam i ponawiamy. Dodatkowo usuwamy trailing commas przed } / ].
+    """
+    import re
+    s = re.sub(r",(\s*[}\]])", r"\1", s)  # trailing commas
+    for _ in range(60):
+        try:
+            return json.loads(s)
+        except json.JSONDecodeError as e:
+            if "Expecting ',' delimiter" in e.msg and 0 < e.pos <= len(s):
+                s = s[:e.pos] + "," + s[e.pos:]
+                continue
+            raise
+    return json.loads(s)
+
+
 def _extract_json(text: str) -> dict:
     text = (text or "").strip()
     # model czasem owija JSON w ```json ... ``` — utnij ploty
@@ -101,7 +120,7 @@ def _extract_json(text: str) -> dict:
     end = text.rfind("}")
     if start == -1 or end == -1:
         raise ValueError("Brak JSON w odpowiedzi modelu")
-    return json.loads(text[start:end + 1])
+    return _loads_lenient(text[start:end + 1])
 
 
 def research(ticker: str, name: str, market: str, guru: str = "fisher",

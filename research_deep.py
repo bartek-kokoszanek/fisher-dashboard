@@ -130,6 +130,7 @@ def yt_research(name: str, ticker: str, market: str) -> dict:
 # ----------------------------------------------------------------- Gemini ---
 
 def _extract_json(text: str) -> dict:
+    from ai_research import _loads_lenient
     text = (text or "").strip()
     if text.startswith("```"):
         text = text.strip("`")
@@ -138,7 +139,7 @@ def _extract_json(text: str) -> dict:
     start, end = text.find("{"), text.rfind("}")
     if start == -1 or end == -1:
         raise ValueError("Brak JSON w odpowiedzi modelu")
-    return json.loads(text[start:end + 1])
+    return _loads_lenient(text[start:end + 1])
 
 
 PROMPT = """Jestes analitykiem inwestycyjnym. Zbadaj AKTUALNY (ostatnie {months} miesiecy,

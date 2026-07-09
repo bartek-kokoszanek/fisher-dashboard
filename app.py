@@ -345,10 +345,13 @@ if choices:
         elif not wl_names:
             st.caption("Utworz liste w panelu bocznym, by zapisywac spolki.")
 
+    def _num(v):
+        return "—" if v is None or (isinstance(v, float) and pd.isna(v)) else v
+
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Wynik laczny", row.get("combined") or "—")
-    c2.metric("Ilosciowy", row.get("score") or "—")
-    c3.metric("Jakosciowy (AI)", row.get("quality") or "—")
+    c1.metric("Wynik laczny", _num(row.get("combined")))
+    c2.metric("Ilosciowy", _num(row.get("score")))
+    c3.metric("Jakosciowy (AI)", _num(row.get("quality")))
     c4.metric("Pokrycie danych", f"{row.get('coverage', 0):.0f}%")
 
     left, right = st.columns(2)
