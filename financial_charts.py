@@ -14,7 +14,8 @@ import streamlit as st
 import ai_research
 import config
 from charts import (cashflow_chart, data, debt_chart, dividend_chart, eps_chart,
-                    helpers as h, margin_chart, pe_chart, revenue_chart, roe_chart)
+                    helpers as h, margin_chart, pe_chart, price_chart,
+                    revenue_chart, roe_chart)
 
 
 @st.cache_data(show_spinner=False, ttl=24 * 3600)
@@ -207,6 +208,20 @@ def render(ticker: str, row: dict):
 
     with st.spinner("Ładuję historię finansową..."):
         hist = _hist(ticker)
+
+    # Wykres ceny akcji (pierwszy) z przelacznikiem okresu
+    st.markdown(f"**Kurs akcji — {row.get('name', ticker)}**")
+    period = st.segmented_control("Okres", list(price_chart.PERIODS.keys()),
+                                  default="1 rok", key=f"pxper_{ticker}",
+                                  label_visibility="collapsed")
+    pfig = price_chart.fig_price(hist.get("prices", {}),
+                                 price_chart.PERIODS.get(period or "1 rok", 1))
+    if pfig is None:
+        st.info("Brak danych cenowych dla tej spółki.")
+    else:
+        st.plotly_chart(pfig, use_container_width=True, theme="streamlit",
+                        config=h.PLOTLY_CONFIG)
+    st.divider()
 
     # KPI kafelki
     kpis = _kpis(hist, row)

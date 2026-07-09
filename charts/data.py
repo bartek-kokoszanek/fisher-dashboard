@@ -187,9 +187,10 @@ def fetch(ticker: str) -> dict:
         if _num(e) not in (None, 0):
             payout[y] = d / e
 
-    # roczne PE = srednia cena w danym roku / EPS tego roku
+    # roczne PE = srednia cena w danym roku / EPS tego roku + tygodniowe ceny (5L)
     pe_annual = {}
     avg_price = {}
+    prices = {}
     try:
         hist = t.history(period="6y")["Close"].dropna()
         if len(hist):
@@ -199,6 +200,10 @@ def fetch(ticker: str) -> dict:
                 e = eps.get(y)
                 if _num(e) not in (None, 0) and e > 0:
                     pe_annual[y] = p / e
+            # tygodniowe ceny do wykresu kursu (mniej punktow = lzejszy cache)
+            wk = hist.resample("W").last().dropna()
+            prices = {d.strftime("%Y-%m-%d"): _num(v) for d, v in wk.items()
+                      if _num(v) is not None}
     except Exception:
         pass
 
@@ -207,6 +212,7 @@ def fetch(ticker: str) -> dict:
     data = {
         "ticker": ticker,
         "forecast": forecast,
+        "prices": prices,
         "series": {
             "revenue": revenue, "net_income": net_income, "gross_profit": gross,
             "operating_income": op_income, "ebitda": ebitda, "eps": eps,

@@ -17,6 +17,7 @@ import financial_charts
 import fisher_score
 import gpw_indices
 import gurus
+import pwpa
 import research_deep
 import universe
 import watchlists
@@ -83,6 +84,59 @@ def load_raws(force: bool):
 def load_pool():
     """Pelna pula symboli Nasdaq+GPW do wyszukiwarki."""
     return universe.all_symbols()
+
+
+@st.cache_data(show_spinner=False, ttl=12 * 3600)
+def pwpa_reports(ticker: str):
+    try:
+        return pwpa.reports_for(ticker)
+    except Exception:
+        return []
+
+
+def render_pwpa(pick: str):
+    """Blok rekomendacji z raportow GPW PWPA (cena docelowa + powody + zrodlo)."""
+    try:
+        reps = pwpa_reports(pick)
+    except Exception:
+        return
+    if not reps:
+        st.caption("📄 Spółka nie jest objęta programem GPW PWPA "
+                   "(brak raportów analitycznych w tym źródle).")
+        return
+
+    with st.expander(f"📄 Rekomendacje analityków — GPW PWPA ({len(reps)} raporty)",
+                     expanded=True):
+        for r in reps:
+            st.markdown(f"**{r['date']}** · {r['type']} · {r['firm']} — "
+                        f"[źródło (PDF)]({r['pdf_url']})")
+
+        latest = reps[0]
+        cached = pwpa.load_extract(latest["pdf_url"])
+        if st.button("🎯 Wyciągnij cenę docelową i uzasadnienie (AI, najnowszy raport)",
+                     key=f"pwpa_{pick}", disabled=not ai_research.available()):
+            with st.spinner("Czytam raport i wyciągam wycenę..."):
+                try:
+                    cached = pwpa.extract(latest, force=True)
+                except Exception as e:
+                    st.error(f"Nie udało się przetworzyć raportu: {e}")
+        if not ai_research.available():
+            st.caption("Wyciąganie ceny docelowej wymaga GEMINI_API_KEY.")
+        if cached:
+            tp = cached.get("target_price")
+            cur = cached.get("currency") or ""
+            rec = cached.get("recommendation") or "—"
+            pc1, pc2 = st.columns(2)
+            pc1.metric("Cena docelowa", f"{tp} {cur}".strip() if tp else "brak w raporcie")
+            pc2.metric("Rekomendacja", rec)
+            if cached.get("summary"):
+                st.info(cached["summary"])
+            if cached.get("rationale"):
+                st.markdown("**Uzasadnienie:**")
+                for pt in cached["rationale"]:
+                    st.markdown(f"- {pt}")
+            st.caption(f"Źródło: {cached.get('firm')} ({cached.get('date')}) · "
+                       f"[raport PDF]({cached.get('source_url')})")
 
 
 def get_wl() -> dict:
@@ -354,6 +408,10 @@ if choices:
     c2.metric("Ilosciowy", _num(row.get("score")))
     c3.metric("Jakosciowy (AI)", _num(row.get("quality")))
     c4.metric("Pokrycie danych", f"{row.get('coverage', 0):.0f}%")
+
+    # --- Rekomendacje analitykow z raportow GPW PWPA (tylko GPW) ---
+    if pick.endswith(".WA"):
+        render_pwpa(pick)
 
     left, right = st.columns(2)
 

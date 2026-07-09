@@ -170,8 +170,29 @@ liczba akcji z wykryciem buyback/dilution, EPS, book value, marża operacyjna) o
 Kod modularny w [charts/](charts/): `helpers.py` (kolory, layout, CAGR, format),
 `data.py` (historia z yfinance, cache), `*_chart.py` (po jednej funkcji na wykres).
 
-> ⚠️ Darmowy yfinance daje ~5 lat rocznych sprawozdań (dywidendy i P/E — dłużej).
-> Wykresy pokazują tyle, ile jest; brak danych = komunikat, nie błąd.
+Pierwszy wykres to **kurs akcji** z przełącznikiem okresu (1 rok / 2 / 3 / 5 lat).
+Wykresy Revenue i EPS pokazują też **prognozy analityków** (kolejne ~2 lata
+obrachunkowe, z widełkami low/high) — z tego samego źródła (yfinance).
+
+> ⚠️ Darmowy yfinance daje ~5 lat rocznych sprawozdań (dywidendy, ceny i P/E —
+> dłużej; prognozy analityków ~2 lata naprzód). Brak danych = komunikat, nie błąd.
+
+---
+
+## Rekomendacje analityków GPW (PWPA)
+
+Dla spółek objętych **Giełdowym Programem Wsparcia Pokrycia Analitycznego**
+([gpw.pl/gpwpa](https://www.gpw.pl/gpwpa)) w analizie spółki pojawia się blok
+z listą raportów maklerskich (data, dom maklerski, typ, **link do źródłowego PDF**).
+Przycisk *🎯 Wyciągnij cenę docelową* czyta najnowszy raport (pypdf) i AI wyciąga
+z niego **cenę docelową, rekomendację i uzasadnienie** — wszystko ze wskazaniem źródła.
+
+Moduł [pwpa.py](pwpa.py): `list_reports()` (POST do ajaxindex.php, cache 12h),
+`reports_for(ticker)`, `extract(report)` (PDF → tekst → JSON przez Gemini, cache).
+
+> ⚠️ Program obejmuje ~70 spółek rynku głównego GPW — **nie całą GPW i nie Nasdaq**.
+> Część raportów (komentarz, analiza wyników) nie zawiera formalnej ceny docelowej.
+> Wyciąganie ceny wymaga `GEMINI_API_KEY`.
 
 ---
 

@@ -46,9 +46,10 @@ def is_num(x) -> bool:
     return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
 
 
-def base_layout(fig, height: int = 260, legend: bool = False):
+def base_layout(fig, height: int = 260, legend: bool = False, time_axis: bool = False):
     """Minimalistyczny, responsywny layout. Kolory tekstu zostawiamy motywowi
-    Streamlita (st.plotly_chart theme='streamlit')."""
+    Streamlita (st.plotly_chart theme='streamlit'). time_axis=True -> os dat
+    (dla wykresu ceny); domyslnie os X to kategorie lat (bez etykiet 2021.5)."""
     fig.update_layout(
         height=height,
         margin=dict(l=8, r=8, t=8, b=8),
@@ -59,8 +60,11 @@ def base_layout(fig, height: int = 260, legend: bool = False):
         legend=dict(orientation="h", yanchor="bottom", y=1.0, x=0),
         bargap=0.25,
     )
-    # lata jako kategorie: bez ulamkowych etykiet (2021.5) na osi X
-    fig.update_xaxes(showgrid=False, zeroline=False, type="category")
+    if time_axis:
+        fig.update_xaxes(showgrid=False, zeroline=False)
+    else:
+        # lata jako kategorie: bez ulamkowych etykiet (2021.5) na osi X
+        fig.update_xaxes(showgrid=False, zeroline=False, type="category")
     fig.update_yaxes(showgrid=True, gridcolor="rgba(128,128,128,0.15)",
                      zeroline=True, zerolinecolor="rgba(128,128,128,0.35)")
     return fig
