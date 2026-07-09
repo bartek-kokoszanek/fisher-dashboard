@@ -9,12 +9,20 @@ a nastepnie wazona zgodnie z config.WEIGHTS. Wynik koncowy 0-100.
 """
 from __future__ import annotations
 
+import math
+
 import config
+
+
+def _isnum(x) -> bool:
+    """True tylko dla skonczonych liczb (odrzuca None, NaN, str, pd.NA itp.)."""
+    return isinstance(x, (int, float)) and not isinstance(x, bool) \
+        and math.isfinite(x)
 
 
 def _band(x, low, high):
     """Liniowe skalowanie x z przedzialu [low, high] do 0-100 (z obcieciem)."""
-    if x is None:
+    if not _isnum(x):
         return None
     if high == low:
         return 50.0
@@ -42,7 +50,7 @@ SCORERS = {
     "low_dilution":       lambda x: _band_inv(x, -0.01, 0.05),  # rozwadnianie karane
     "low_leverage":       lambda x: _band_inv(x, 0.0, 2.0),     # D/E: 0 -> 100, 2+ -> 0
     # metryki dodatkowe dla strategii guru (gurus.py):
-    "value_pe":           lambda x: None if (x is None or x <= 0) else _band_inv(x, 5, 40),
+    "value_pe":           lambda x: _band_inv(x, 5, 40) if (_isnum(x) and x > 0) else None,
     "momentum":           lambda x: _band(x, -0.20, 0.50),      # zwrot 6-mies.
 }
 
