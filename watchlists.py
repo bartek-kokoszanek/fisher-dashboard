@@ -21,7 +21,8 @@ GIST_FILE = "watchlists.json"
 LOCAL_PATH = os.path.join(config.CACHE_DIR, "watchlists.json")
 _API = "https://api.github.com/gists/{gist_id}"
 
-EMPTY = {"lists": {}}
+# notes = wlasne notatki uzytkownika per spolka {ticker: tekst} (uzytek osobisty)
+EMPTY = {"lists": {}, "notes": {}}
 
 
 def _gist_conf() -> tuple[str, str] | None:
