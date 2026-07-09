@@ -170,11 +170,15 @@ ryzyka). Kolejność: najpierw **napisy** (szybko, w tym auto-ASR); gdy ich brak
 pobiera **audio** (yt-dlp) i **transkrybuje przez Gemini** (model multimodalny).
 Wymaga `ffmpeg` (jest w [packages.txt](packages.txt), instalowany na Streamlit Cloud).
 
-> ⚠️ Pobieranie audio z YouTube jest w szarej strefie regulaminu YT i bywa
-> blokowane z IP serwerowych — dlatego domyślnie używane są napisy, a audio-STT to
-> fallback na wyraźne kliknięcie. Filmy > 30 min są pomijane (limit tokenów audio).
-> Transkrypcja audio zużywa wspólną pulę Gemini (rotacja kluczy pomaga); wyniki
-> cache w `data/ytt_<video_id>.json`. Whisper lokalny nie działa na Streamlit Cloud.
+> ⚠️ **YouTube blokuje IP centrów danych** (błąd 403) — na Streamlit Cloud zarówno
+> napisy, jak i audio zwykle się nie zaciągną. Ta funkcja działa pewnie:
+> **(a) lokalnie** (`streamlit run app.py` z domowego IP), albo **(b) z proxy** —
+> ustaw `YT_PROXY = "http://user:pass@host:port"` (residential) w Secrets.
+> Deep research (findings z YouTube przez Google Search) działa na chmurze niezależnie.
+>
+> Pozostałe ograniczenia: pobieranie audio to szara strefa ToS YouTube; filmy > 30 min
+> pomijane; audio-STT zużywa pulę Gemini (rotacja kluczy pomaga); cache w
+> `data/ytt_<video_id>.json`. Whisper lokalny nie zmieści się na Streamlit Cloud.
 
 ---
 

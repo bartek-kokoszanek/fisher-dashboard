@@ -28,7 +28,8 @@ from gpw_tickers import GPW_TICKERS
 # do zmiennej srodowiskowej, bo ai_research.py czyta klucz z os.environ.
 try:
     _bridge = ["GEMINI_API_KEY", "GEMINI_API_KEYS", "LLM_API_KEY", "LLM_BASE_URL",
-               "LLM_MODEL", "DEEP_MODEL", "GITHUB_TOKEN", "GIST_ID"]
+               "LLM_MODEL", "DEEP_MODEL", "STT_MODEL", "GITHUB_TOKEN", "GIST_ID",
+               "YT_PROXY"]
     _bridge += [f"GEMINI_API_KEY_{i}" for i in range(2, 6)]
     for _k in _bridge:
         if _k in st.secrets and not os.environ.get(_k):
@@ -539,8 +540,11 @@ if choices:
     st.divider()
     st.subheader("🎧 Transkrypcja i analiza wideo (AI)")
     st.caption("Agent bierze transkrypt filmu z YouTube (najpierw napisy; gdy ich brak "
-               "— transkrybuje dzwiek przez Gemini) i wyciaga wnioski o spolce. "
-               "Uwaga: pobieranie audio jest wolniejsze i bywa blokowane z serwera.")
+               "— transkrybuje dzwiek przez Gemini) i wyciaga wnioski o spolce.")
+    if not os.environ.get("YT_PROXY"):
+        st.caption("ℹ️ Na Streamlit Cloud YouTube czesto blokuje IP serwera (403). "
+                   "Ta funkcja dziala pewnie **lokalnie** (streamlit run app.py) albo "
+                   "po ustawieniu **YT_PROXY** (residential proxy) w Secrets.")
     if not yt_transcribe.available():
         st.caption("Wymaga GEMINI_API_KEY.")
     else:

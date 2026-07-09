@@ -49,14 +49,29 @@ def load_cached(ticker: str) -> dict | None:
 # ---------------------------------------------------------------- YouTube ---
 
 def _yt_transcript(video_id: str) -> str | None:
-    """Transkrypt filmu (pl/en) albo None. Fail-soft — chmura bywa blokowana."""
+    """Transkrypt filmu (pl/en) albo None. Fail-soft — chmura bywa blokowana.
+
+    Uzywa proxy z YT_PROXY, gdy ustawione (obejscie blokady IP na Streamlit Cloud).
+    """
+    proxy = os.environ.get("YT_PROXY") or None
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
-        try:  # API >= 1.0
-            fetched = YouTubeTranscriptApi().fetch(video_id, languages=["pl", "en"])
+        try:  # API >= 1.0 (opcjonalne proxy_config)
+            kwargs = {}
+            if proxy:
+                try:
+                    from youtube_transcript_api.proxies import GenericProxyConfig
+                    kwargs["proxy_config"] = GenericProxyConfig(
+                        http_url=proxy, https_url=proxy)
+                except Exception:
+                    pass
+            fetched = YouTubeTranscriptApi(**kwargs).fetch(
+                video_id, languages=["pl", "en"])
             text = " ".join(s.text for s in fetched)
         except AttributeError:  # starsze API
-            segs = YouTubeTranscriptApi.get_transcript(video_id, languages=["pl", "en"])
+            segs = YouTubeTranscriptApi.get_transcript(
+                video_id, languages=["pl", "en"],
+                proxies=({"http": proxy, "https": proxy} if proxy else None))
             text = " ".join(s["text"] for s in segs)
         return text[:TRANSCRIPT_CHARS]
     except Exception:

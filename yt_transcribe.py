@@ -32,6 +32,24 @@ def available() -> bool:
     return ai_research.available()
 
 
+def _proxy() -> str | None:
+    """Opcjonalne proxy (residential) dla obejscia blokady IP YouTube na chmurze."""
+    return os.environ.get("YT_PROXY") or None
+
+
+def _is_block(msg: str) -> bool:
+    m = str(msg).lower()
+    return any(s in m for s in ("403", "forbidden", "sign in", "blocked",
+                                "not a bot", "unable to download"))
+
+
+_BLOCK_HINT = (
+    "YouTube blokuje IP serwera (typowe na Streamlit Cloud). Rozwiazania: "
+    "uruchom aplikacje LOKALNIE (streamlit run app.py) albo ustaw YT_PROXY "
+    "(residential proxy) w Secrets. Napisy i deep research nadal dzialaja."
+)
+
+
 def _cache_path(video_id: str) -> str:
     os.makedirs(config.CACHE_DIR, exist_ok=True)
     return os.path.join(config.CACHE_DIR, f"ytt_{video_id}.json")
@@ -68,10 +86,15 @@ def download_audio(video_id: str) -> tuple[str, float]:
         "format": "bestaudio/best",
         "outtmpl": out,
         "quiet": True, "no_warnings": True, "noprogress": True,
+        "retries": 3,
+        # rozne klienty YouTube jako fallback (czasem omija czesc blokad 403)
+        "extractor_args": {"youtube": {"player_client": ["android", "ios", "web"]}},
         "postprocessors": [{"key": "FFmpegExtractAudio",
                             "preferredcodec": "mp3", "preferredquality": "48"}],
         "postprocessor_args": ["-ac", "1", "-ar", "16000"],  # mono 16 kHz
     }
+    if _proxy():
+        opts["proxy"] = _proxy()
     url = f"https://www.youtube.com/watch?v={video_id}"
     try:
         with YoutubeDL(opts) as ydl:
@@ -85,8 +108,9 @@ def download_audio(video_id: str) -> tuple[str, float]:
     except RuntimeError:
         raise
     except Exception as e:
-        raise RuntimeError(f"Nie udalo sie pobrac audio (YouTube moze blokowac "
-                           f"z serwera / brak ffmpeg): {e}")
+        if _is_block(e):
+            raise RuntimeError(_BLOCK_HINT)
+        raise RuntimeError(f"Nie udalo sie pobrac audio (brak ffmpeg?): {e}")
     path = os.path.join(tmpdir, f"{video_id}.mp3")
     if not os.path.exists(path):
         raise RuntimeError("Audio nie zostalo zapisane (prawdopodobnie brak ffmpeg).")
