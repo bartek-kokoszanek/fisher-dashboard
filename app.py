@@ -21,6 +21,7 @@ import pwpa
 import research_deep
 import universe
 import watchlists
+import yt_transcribe
 from gpw_tickers import GPW_TICKERS
 
 # Na Streamlit Community Cloud klucz API wpisujesz w panelu Secrets. Przenosimy go
@@ -92,6 +93,14 @@ def load_pool():
 def pwpa_reports(ticker: str):
     try:
         return pwpa.reports_for(ticker)
+    except Exception:
+        return []
+
+
+@st.cache_data(show_spinner=False, ttl=6 * 3600)
+def yt_videos(ticker: str, name: str, market: str):
+    try:
+        return yt_transcribe.find_videos(name, ticker, market)
     except Exception:
         return []
 
@@ -525,6 +534,57 @@ if choices:
         st.caption(f"Model: {deep.get('model')} · {deep.get('researched_at', '')}")
     else:
         st.caption("Brak deep researchu dla tej spolki. Uruchom przyciskiem powyzej.")
+
+    # ---------------- Transkrypcja i analiza wideo (AI) ----------------
+    st.divider()
+    st.subheader("🎧 Transkrypcja i analiza wideo (AI)")
+    st.caption("Agent bierze transkrypt filmu z YouTube (najpierw napisy; gdy ich brak "
+               "— transkrybuje dzwiek przez Gemini) i wyciaga wnioski o spolce. "
+               "Uwaga: pobieranie audio jest wolniejsze i bywa blokowane z serwera.")
+    if not yt_transcribe.available():
+        st.caption("Wymaga GEMINI_API_KEY.")
+    else:
+        vids = yt_videos(pick, row.get("name", pick), row.get("market", ""))
+        if not vids:
+            st.caption("Nie znaleziono filmow (YouTube moze blokowac wyszukiwanie z serwera).")
+        else:
+            allow_audio = st.checkbox(
+                "Transkrybuj dzwiek, gdy film nie ma napisow (wolniejsze)",
+                value=True, key=f"ytt_aud_{pick}")
+            labels = {v["id"]: f"{v.get('date', '')} · {str(v.get('title', ''))[:65]} "
+                              f"— {v.get('channel', '')}" for v in vids}
+            vid = st.selectbox("Film", [v["id"] for v in vids],
+                               format_func=lambda i: labels.get(i, i),
+                               key=f"ytt_sel_{pick}")
+            video = next(v for v in vids if v["id"] == vid)
+            res = yt_transcribe.load_cached(vid)
+            if st.button("🎧 Transkrybuj i analizuj", key=f"ytt_btn_{pick}"):
+                with st.spinner("Pobieram transkrypt i analizuje..."):
+                    try:
+                        res = yt_transcribe.run(video, row.get("name", pick), pick,
+                                                allow_audio=allow_audio, force=True)
+                    except Exception as e:
+                        st.error(f"Nie udalo sie: {e}")
+            if res:
+                st.markdown(f"**[{res.get('title', 'film')}]({res.get('url')})** — "
+                            f"źródło transkryptu: *{res.get('transcript_source')}*")
+                sc = res.get("sentiment")
+                if sc is not None:
+                    st.metric("Sentyment autora wobec spółki", f"{sc:+d}")
+                if res.get("thesis") and res["thesis"].lower() != "brak":
+                    st.info(res["thesis"])
+                if res.get("key_points"):
+                    st.markdown("**Kluczowe tezy:**")
+                    for p in res["key_points"]:
+                        st.markdown(f"- {p}")
+                if res.get("risks"):
+                    st.markdown("**Ryzyka wg autora:**")
+                    for p in res["risks"]:
+                        st.markdown(f"- {p}")
+                with st.expander("Fragment transkryptu"):
+                    st.write(res.get("transcript_excerpt", ""))
+                st.caption(f"Postawa: {res.get('speaker_stance', '—')} · "
+                           f"{res.get('analyzed_at', '')}")
 else:
     st.info("Brak spolek spelniajacych filtry. Zluzuj min. pokrycie lub odswiez dane.")
 

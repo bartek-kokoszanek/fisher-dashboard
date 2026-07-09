@@ -162,6 +162,20 @@ Sentyment **nie wpływa** na Wynik Fishera (to zjawisko krótkoterminowe) — je
 wyświetlany osobno. Wyniki cache w `data/deep_<ticker>.json`. Wymaga `GEMINI_API_KEY`;
 model przez `DEEP_MODEL` (domyślnie `gemini-flash-latest`).
 
+### Transkrypcja i analiza wideo ([yt_transcribe.py](yt_transcribe.py))
+
+Podsekcja **🎧 Transkrypcja i analiza wideo**: wybierasz film z YouTube o spółce,
+a agent bierze jego transkrypt i wyciąga wnioski (kluczowe tezy, sentyment autora,
+ryzyka). Kolejność: najpierw **napisy** (szybko, w tym auto-ASR); gdy ich brak —
+pobiera **audio** (yt-dlp) i **transkrybuje przez Gemini** (model multimodalny).
+Wymaga `ffmpeg` (jest w [packages.txt](packages.txt), instalowany na Streamlit Cloud).
+
+> ⚠️ Pobieranie audio z YouTube jest w szarej strefie regulaminu YT i bywa
+> blokowane z IP serwerowych — dlatego domyślnie używane są napisy, a audio-STT to
+> fallback na wyraźne kliknięcie. Filmy > 30 min są pomijane (limit tokenów audio).
+> Transkrypcja audio zużywa wspólną pulę Gemini (rotacja kluczy pomaga); wyniki
+> cache w `data/ytt_<video_id>.json`. Whisper lokalny nie działa na Streamlit Cloud.
+
 ---
 
 ## Financial Charts
