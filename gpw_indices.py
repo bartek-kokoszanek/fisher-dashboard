@@ -164,13 +164,16 @@ NASDAQ_AI = {
     "TSLA", "ISRG", "ABNB", "APP",
 }
 
+from sp500_tickers import SP500 as _SP500_NAMES
+SP500 = set(_SP500_NAMES)
+
 SEGMENTS_GPW = ("WIG20", "mWIG40", "sWIG80", "WIG-pozostale")
-SEGMENTS_NASDAQ = ("Nasdaq", "Nasdaq-AI")
-ALL_SEGMENTS = SEGMENTS_NASDAQ + SEGMENTS_GPW
+SEGMENTS_US = ("Nasdaq", "Nasdaq-AI", "S&P500")
+ALL_SEGMENTS = SEGMENTS_US + SEGMENTS_GPW
 
 
 def segments_of(ticker: str) -> set[str]:
-    """Zbior segmentow spolki (spolka AI nalezy do Nasdaq i Nasdaq-AI)."""
+    """Zbior segmentow spolki (moze nalezec do kilku, np. Nasdaq + Nasdaq-AI + S&P500)."""
     if ticker.endswith(".WA"):
         if ticker in WIG20:
             return {"WIG20"}
@@ -182,12 +185,15 @@ def segments_of(ticker: str) -> set[str]:
     segs = {"Nasdaq"}
     if ticker in NASDAQ_AI:
         segs.add("Nasdaq-AI")
+    if ticker in SP500:
+        segs.add("S&P500")
     return segs
 
 
 def segment_label(ticker: str) -> str:
     """Etykieta do tabeli (najbardziej szczegolowy segment)."""
     segs = segments_of(ticker)
-    if "Nasdaq-AI" in segs:
-        return "Nasdaq-AI"
+    for pref in ("Nasdaq-AI", "S&P500"):
+        if pref in segs:
+            return pref
     return next(iter(segs))

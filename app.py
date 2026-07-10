@@ -180,9 +180,9 @@ st.sidebar.caption(gurus.get(guru_key)["desc"])
 
 segments = st.sidebar.multiselect(
     "Segment", list(gpw_indices.ALL_SEGMENTS),
-    default=["Nasdaq", "WIG20", "mWIG40"],
-    help="Nasdaq-AI = kuratorowany podzbior spolek AI. WIG-pozostale = spolki "
-         "GPW spoza WIG20/mWIG40/sWIG80 (pierwsze zaladowanie potrwa).",
+    default=["WIG20", "mWIG40", "sWIG80"],
+    help="Nasdaq-AI = kuratorowany podzbior spolek AI. S&P500 i WIG-pozostale "
+         "dociagane sa leniwie (pierwsze zaladowanie potrwa kilka minut).",
 )
 min_cov = st.sidebar.slider("Min. pokrycie danych (%)", 0, 100, 40, step=10)
 
@@ -264,19 +264,25 @@ if missing_listed:
         for t in missing_listed:
             extra_raws[t] = data_fetch.get(t)
 
-# segment WIG-pozostale: leniwe dociagniecie spolek spoza indeksow
+# leniwe dociaganie duzych segmentow (spolki spoza bazowego uniwersum)
+def _lazy_fetch(tickers, label):
+    todo = [t for t in tickers if t not in known and t not in extra_raws]
+    if not todo:
+        return
+    st.info(f"Segment {label}: pobieram {len(todo)} spolek — "
+            "pierwszy raz moze potrwac kilka minut.")
+    prog = st.progress(0.0)
+    for i, t in enumerate(todo):
+        extra_raws[t] = data_fetch.get(t)
+        prog.progress((i + 1) / len(todo), text=f"{t} ({i + 1}/{len(todo)})")
+    prog.empty()
+
+
 if "WIG-pozostale" in segments:
-    rest = [t for t in GPW_TICKERS
-            if "WIG-pozostale" in gpw_indices.segments_of(t)
-            and t not in known and t not in extra_raws]
-    if rest:
-        st.info(f"Segment WIG-pozostale: pobieram {len(rest)} spolek spoza "
-                "indeksow — pierwszy raz moze potrwac kilka minut.")
-        prog = st.progress(0.0)
-        for i, t in enumerate(rest):
-            extra_raws[t] = data_fetch.get(t)
-            prog.progress((i + 1) / len(rest), text=f"{t} ({i + 1}/{len(rest)})")
-        prog.empty()
+    _lazy_fetch([t for t in GPW_TICKERS
+                 if "WIG-pozostale" in gpw_indices.segments_of(t)], "WIG-pozostale")
+if "S&P500" in segments:
+    _lazy_fetch(sorted(gpw_indices.SP500), "S&P500")
 
 all_raws = raws + [r for t, r in extra_raws.items() if t not in known]
 data = [build_row(r, guru_key) for r in all_raws]

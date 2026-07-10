@@ -68,9 +68,12 @@ def gpw_symbols() -> dict[str, str]:
 
 
 def all_symbols() -> dict[str, str]:
-    """Pelna pula {ticker: nazwa}; GPW z sufiksem .WA."""
+    """Pelna pula {ticker: nazwa}; GPW z sufiksem .WA, + S&P500 (tez z NYSE)."""
     pool = nasdaq_symbols()
     pool.update(gpw_symbols())
+    from sp500_tickers import SP500
+    for tk, name in SP500.items():
+        pool.setdefault(tk, name)  # dodaj spolki S&P500 spoza katalogu Nasdaq (NYSE)
     return pool
 
 

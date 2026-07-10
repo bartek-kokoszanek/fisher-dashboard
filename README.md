@@ -34,10 +34,12 @@ fundamentalnych — te profile to świadome uproszczenia.
 ## Segmenty rynku
 
 Filtr **Segment** w panelu bocznym: `Nasdaq`, `Nasdaq-AI` (kuratorowany
-podzbiór ~36 spółek AI — edytuj w [gpw_indices.py](gpw_indices.py)), `WIG20`,
-`mWIG40`, `sWIG80` oraz `WIG-pozostałe` (spółki GPW spoza indeksów — ładowane
-leniwie przy pierwszym wybraniu, to potrwa). Bazowe uniwersum = cały Nasdaq-24
-+ komplet WIG20+mWIG40+sWIG80 (~140 spółek GPW).
+podzbiór ~36 spółek AI — edytuj w [gpw_indices.py](gpw_indices.py)), **`S&P500`**
+(~500 spółek, lista w [sp500_tickers.py](sp500_tickers.py)), `WIG20`, `mWIG40`,
+`sWIG80` oraz `WIG-pozostałe`. Domyślnie zaznaczone są indeksy GPW
+(WIG20/mWIG40/sWIG80). Duże segmenty (`S&P500`, `WIG-pozostałe`) są **ładowane
+leniwie** przy pierwszym wybraniu — pobranie ~500 spółek potrwa kilka minut,
+potem działa z cache. Bazowe uniwersum = Nasdaq-24 + komplet WIG (~140 GPW).
 
 Składy indeksów zmieniają się kwartalnie — wygenerowane 2026-07-09; aby
 odświeżyć, uruchom ponownie generator (skrypt w historii projektu) lub popraw
