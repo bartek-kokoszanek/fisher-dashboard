@@ -315,10 +315,13 @@ view = df.sort_values("combined", ascending=False, na_position="last").copy()
 
 # kolumny w stylu skanera TradingView
 for col in ("price", "target_mean", "target_upside", "analyst_count",
-            "recommendation_mean", "recommendation_key", "trailing_pe", "market_cap"):
+            "recommendation_mean", "recommendation_key", "trailing_pe", "market_cap",
+            "next_earnings_date", "rev_growth_est", "eps_growth_est"):
     if col not in view.columns:
         view[col] = None
 view["target_upside_pct"] = view["target_upside"].astype(float) * 100
+view["rev_growth_pct"] = view["rev_growth_est"].astype(float) * 100
+view["eps_growth_pct"] = view["eps_growth_est"].astype(float) * 100
 
 
 def _rec_label(r):
@@ -336,11 +339,15 @@ view["signal"] = view["combined"].map(
               f"{fisher_score.action_verdict(s)['label']}")
 
 table = view[["ticker", "name", "segment", "price", "target_mean",
-              "target_upside_pct", "analyst_count", "rec_label", "trailing_pe",
-              "market_cap", "combined", "signal", "coverage"]].rename(columns={
+              "target_upside_pct", "analyst_count", "rec_label",
+              "next_earnings_date", "rev_growth_pct", "eps_growth_pct",
+              "trailing_pe", "market_cap", "combined", "signal",
+              "coverage"]].rename(columns={
     "ticker": "Symbol", "name": "Spolka", "segment": "Segment", "price": "Cena",
     "target_mean": "Cena docelowa", "target_upside_pct": "Do celu %",
     "analyst_count": "Rekom.", "rec_label": "Ocena analitykow",
+    "next_earnings_date": "Wyniki (data)", "rev_growth_pct": "Przych. r/r (est.)",
+    "eps_growth_pct": "Zysk r/r (est.)",
     "trailing_pe": "C/Z", "market_cap": "Kap. rynk.",
     "combined": "Wynik", "signal": "Sygnal", "coverage": "Pokrycie %"})
 
@@ -351,7 +358,8 @@ def _upside_color(v):
     return "color: #16a34a; font-weight: 600" if v >= 0 else "color: #dc2626; font-weight: 600"
 
 
-styled = table.style.map(_upside_color, subset=["Do celu %"])
+styled = table.style.map(
+    _upside_color, subset=["Do celu %", "Przych. r/r (est.)", "Zysk r/r (est.)"])
 
 st.dataframe(
     styled,
@@ -361,6 +369,16 @@ st.dataframe(
         "Cena docelowa": st.column_config.NumberColumn(format="%.2f"),
         "Do celu %": st.column_config.NumberColumn(format="%+.1f%%"),
         "Rekom.": st.column_config.NumberColumn(format="%d"),
+        "Wyniki (data)": st.column_config.TextColumn(
+            help="Data najblizszego sprawozdania kwartalnego (kalendarz Yahoo)"),
+        "Przych. r/r (est.)": st.column_config.NumberColumn(
+            format="%+.1f%%",
+            help="Konsensus analitykow: oczekiwany wzrost przychodow r/r "
+                 "na najblizszy raportowany kwartal"),
+        "Zysk r/r (est.)": st.column_config.NumberColumn(
+            format="%+.1f%%",
+            help="Konsensus analitykow: oczekiwany wzrost zysku (EPS) r/r "
+                 "na najblizszy raportowany kwartal"),
         "C/Z": st.column_config.NumberColumn(format="%.1f"),
         "Kap. rynk.": st.column_config.NumberColumn(format="compact"),
         "Wynik": st.column_config.ProgressColumn("Wynik", min_value=0, max_value=100, format="%.1f"),
@@ -369,6 +387,10 @@ st.dataframe(
 )
 st.caption("Cena i cena docelowa w walucie notowan (Nasdaq: USD, GPW: PLN). "
            "Rekom. = liczba analitykow; ocena 1=Strong Buy ... 5=Sell. "
+           "Wyniki (data) = najblizsze sprawozdanie kwartalne. "
+           "Przych./Zysk r/r (est.) = konsensus analitykow na najblizszy kwartal "
+           "wzgledem tego samego kwartalu rok wczesniej (zielone = wzrost, "
+           "czerwone = spadek). "
            "Sygnal = decyzja wg wybranej strategii (Kupuj/Akumuluj/Trzymaj/Sprzedaj) "
            "na podstawie Wyniku. Dla czesci spolek GPW konsensus analitykow niedostepny.")
 
