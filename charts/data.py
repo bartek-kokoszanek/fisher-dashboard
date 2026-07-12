@@ -4,6 +4,10 @@ Zwraca slownik serii {metryka: {rok: wartosc}} + dywidendy + roczne PE.
 UWAGA: darmowy yfinance daje ~5 lat rocznych sprawozdan (nie 10) — bierzemy
 ile jest. Dywidendy i ceny (PE) siegaja dalej. Wynik cache'owany 24h do
 data/hist_<ticker>.json. Brakujace metryki po prostu nie wystepuja w slowniku.
+
+Ceny: obok Yahoo dostepne jest alternatywne zrodlo Stooq (darmowe CSV, bez
+klucza; GPW i USA) — get_prices(ticker, source). Fundamenty (sprawozdania,
+prognozy analitykow) maja tylko zrodlo Yahoo — darmowej alternatywy brak.
 """
 from __future__ import annotations
 
@@ -18,6 +22,7 @@ import yfinance as yf
 import config
 
 TTL_H = 24
+SCHEMA = 2  # v2: ceny tygodniowe za caly dostepny okres (Max), nie tylko 6 lat
 
 
 def _cache_path(ticker: str) -> str:
@@ -187,12 +192,13 @@ def fetch(ticker: str) -> dict:
         if _num(e) not in (None, 0):
             payout[y] = d / e
 
-    # roczne PE = srednia cena w danym roku / EPS tego roku + tygodniowe ceny (5L)
+    # roczne PE = srednia cena w danym roku / EPS tego roku
+    # + tygodniowe ceny za caly dostepny okres (do wykresu z zakresem Max)
     pe_annual = {}
     avg_price = {}
     prices = {}
     try:
-        hist = t.history(period="6y")["Close"].dropna()
+        hist = t.history(period="max")["Close"].dropna()
         if len(hist):
             gp = hist.groupby(hist.index.year).mean()
             avg_price = {int(y): _num(v) for y, v in gp.items() if _num(v) is not None}
@@ -211,6 +217,7 @@ def fetch(ticker: str) -> dict:
 
     data = {
         "ticker": ticker,
+        "schema": SCHEMA,
         "forecast": forecast,
         "prices": prices,
         "series": {
@@ -236,7 +243,8 @@ def get_history(ticker: str, force: bool = False) -> dict:
             with open(path, "r", encoding="utf-8") as f:
                 cached = json.load(f)
             ts = datetime.fromisoformat(cached["fetched_at"])
-            if (datetime.now(timezone.utc) - ts).total_seconds() / 3600 <= TTL_H:
+            if ((datetime.now(timezone.utc) - ts).total_seconds() / 3600 <= TTL_H
+                    and cached.get("schema") == SCHEMA):
                 # klucze lat z JSON sa stringami -> rzutujemy na int
                 for k, s in cached["series"].items():
                     cached["series"][k] = {int(y): v for y, v in s.items()}
@@ -256,6 +264,92 @@ def get_history(ticker: str, force: bool = False) -> dict:
     return data
 
 
+# ------------------------------------------------------------- Ceny: zrodla ---
+# Ceny mozna pobrac z dwoch niezaleznych zrodel. Fundamenty — tylko Yahoo.
+PRICE_SOURCES = {
+    "yahoo": "Yahoo Finance",
+    "stooq": "Stooq",
+}
+
+
+def _stooq_symbol(ticker: str) -> str:
+    """Ticker Yahoo -> symbol Stooq: GPW bez sufiksu ('CDR.WA' -> 'cdr'),
+    USA z '.us' ('AAPL' -> 'aapl.us')."""
+    if ticker.endswith(".WA"):
+        return ticker[:-3].lower()
+    return ticker.lower() + ".us"
+
+
+def _stooq_cache_path(ticker: str) -> str:
+    os.makedirs(config.CACHE_DIR, exist_ok=True)
+    return os.path.join(config.CACHE_DIR,
+                        f"px_stooq_{ticker.replace('.', '_')}.json")
+
+
+def fetch_prices_stooq(ticker: str) -> dict:
+    """Tygodniowe ceny zamkniecia ze Stooq (caly dostepny okres).
+
+    Darmowy CSV bez klucza: https://stooq.com/q/d/l/?s=<symbol>&i=w
+    """
+    import io
+
+    import requests
+
+    sym = _stooq_symbol(ticker)
+    url = f"https://stooq.com/q/d/l/?s={sym}&i=w"
+    r = requests.get(url, timeout=30,
+                     headers={"User-Agent": "Mozilla/5.0"})
+    r.raise_for_status()
+    text = r.text.strip()
+    if not text or text.lower().startswith(("brak danych", "no data", "<")):
+        raise ValueError(f"Stooq nie ma danych dla symbolu '{sym}'.")
+    df = pd.read_csv(io.StringIO(text))
+    if "Date" not in df.columns or "Close" not in df.columns:
+        raise ValueError(f"Nieoczekiwany format CSV ze Stooq dla '{sym}'.")
+    prices = {}
+    for _, rrow in df.iterrows():
+        v = _num(rrow["Close"])
+        if v is not None:
+            prices[str(rrow["Date"])] = v
+    return {"prices": prices, "source": "stooq",
+            "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+
+
+def get_prices(ticker: str, source: str = "yahoo", force: bool = False) -> dict:
+    """Ceny tygodniowe z wybranego zrodla + metadane swiezosci.
+
+    Zwraca {"prices": {YYYY-MM-DD: close}, "source": str, "source_label": str,
+    "fetched_at": iso}. Yahoo -> z cache historii (get_history); Stooq ->
+    osobny cache data/px_stooq_<t>.json (TTL 24h). Fail-soft: blad Stooq
+    zglaszamy wyjatkiem — UI pokazuje komunikat i mozna wrocic na Yahoo.
+    """
+    if source == "stooq":
+        path = _stooq_cache_path(ticker)
+        if not force and os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    cached = json.load(f)
+                ts = datetime.fromisoformat(cached["fetched_at"])
+                if (datetime.now(timezone.utc) - ts).total_seconds() / 3600 <= TTL_H:
+                    cached["source_label"] = PRICE_SOURCES["stooq"]
+                    return cached
+            except Exception:
+                pass
+        out = fetch_prices_stooq(ticker)
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(out, f, ensure_ascii=False)
+        except Exception:
+            pass
+        out["source_label"] = PRICE_SOURCES["stooq"]
+        return out
+
+    hist = get_history(ticker, force=force)
+    return {"prices": hist.get("prices", {}), "source": "yahoo",
+            "source_label": PRICE_SOURCES["yahoo"],
+            "fetched_at": hist.get("fetched_at")}
+
+
 if __name__ == "__main__":
     import sys
     tk = sys.argv[1] if len(sys.argv) > 1 else "AAPL"
@@ -263,3 +357,5 @@ if __name__ == "__main__":
     for k, s in d["series"].items():
         yrs = sorted(s)
         print(f"{k:18} {len(yrs)} lat: {yrs}")
+    px = get_prices(tk, "stooq", force=True)
+    print(f"stooq: {len(px['prices'])} punktow, fetched {px['fetched_at']}")

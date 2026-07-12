@@ -199,6 +199,11 @@ def load_interpret(ticker: str) -> dict | None:
 
 # ---------------- Render sekcji ----------------
 
+@st.cache_data(show_spinner=False, ttl=24 * 3600)
+def _prices(ticker: str, source: str) -> dict:
+    return data.get_prices(ticker, source)
+
+
 def render(ticker: str, row: dict):
     st.subheader("📊 Financial Charts")
     st.caption("Wykresy finansowe z danych Yahoo Finance. ~5 lat historii + "
@@ -209,18 +214,50 @@ def render(ticker: str, row: dict):
     with st.spinner("Ładuję historię finansową..."):
         hist = _hist(ticker)
 
-    # Wykres ceny akcji (pierwszy) z przelacznikiem okresu
+    # Wykres kursu akcji: okres + nakladki metryk + wybor zrodla cen
     st.markdown(f"**Kurs akcji — {row.get('name', ticker)}**")
-    period = st.segmented_control("Okres", list(price_chart.PERIODS.keys()),
-                                  default="1 rok", key=f"pxper_{ticker}",
-                                  label_visibility="collapsed")
-    pfig = price_chart.fig_price(hist.get("prices", {}),
-                                 price_chart.PERIODS.get(period or "1 rok", 1))
+    tc1, tc2 = st.columns([3, 1], vertical_alignment="bottom")
+    with tc1:
+        period = st.segmented_control(
+            "Okres", list(price_chart.RANGES.keys()), default="1R",
+            key=f"pxper_{ticker}", label_visibility="collapsed")
+    with tc2:
+        src_label = st.selectbox(
+            "Źródło cen", list(data.PRICE_SOURCES.values()),
+            key=f"pxsrc_{ticker}",
+            help="Ceny można pobrać z Yahoo Finance albo ze Stooq "
+                 "(niezależne źródło, darmowe CSV). Fundamenty i prognozy "
+                 "analityków są dostępne tylko z Yahoo Finance.")
+    src = next(k for k, v in data.PRICE_SOURCES.items() if v == src_label)
+    metrics = st.multiselect(
+        "Serie na wykresie", list(price_chart.METRICS.keys()),
+        default=price_chart.DEFAULT_METRICS, key=f"pxmet_{ticker}",
+        help="Panele grupują serie o tej samej jednostce (cena / % / "
+             "krotności / waluta). Mediany 3-letnie wskaźników rysowane są "
+             "linią kropkowaną.")
+
+    try:
+        px = _prices(ticker, src)
+    except Exception as e:
+        st.warning(f"Nie udało się pobrać cen ze źródła {src_label}: {e}. "
+                   "Pokazuję ceny z Yahoo Finance.")
+        px = {"prices": hist.get("prices", {}), "source_label": "Yahoo Finance",
+              "fetched_at": hist.get("fetched_at")}
+
+    pfig = price_chart.fig_advanced(hist, row, px.get("prices", {}),
+                                    period or "1R", metrics)
     if pfig is None:
-        st.info("Brak danych cenowych dla tej spółki.")
+        st.info("Brak danych cenowych dla tej spółki (spróbuj innego źródła).")
     else:
         st.plotly_chart(pfig, use_container_width=True, theme="streamlit",
                         config=h.PLOTLY_CONFIG)
+    st.caption(
+        f"Ceny: **{px.get('source_label')}** · zaktualizowano "
+        f"{h.fmt_dt(px.get('fetched_at'))} · Fundamenty i prognozy: "
+        f"**Yahoo Finance** · zaktualizowano {h.fmt_dt(hist.get('fetched_at'))}. "
+        "Wskaźniki tygodniowe (P/E, P/S, EV/EBITDA) liczone z ceny i rocznych "
+        "sprawozdań — przybliżenie. Cena docelowa = bieżący konsensus "
+        "(historia celów niedostępna w darmowych danych).")
     st.divider()
 
     # KPI kafelki
