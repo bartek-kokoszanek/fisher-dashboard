@@ -80,9 +80,14 @@ def build_row(raw: dict, guru_key: str) -> dict:
     }
 
 
-@st.cache_data(show_spinner=False)
-def load_raws(force: bool):
-    """Surowe dane bazowego uniwersum (cache Streamlita + cache plikowy 24h)."""
+@st.cache_data(show_spinner=False, ttl=24 * 3600)
+def load_raws(force: bool, _v: int = 2):
+    """Surowe dane bazowego uniwersum (cache Streamlita + cache plikowy 24h).
+
+    ttl + _v: bez ttl wpisy w pamieci zyly wiecznie (deploy na Streamlit
+    Cloud to hot-reload bez restartu procesu), wiec tabela serwowala stare
+    dane mimo bumpu wersji cache plikowego. Podbij _v przy zmianie schematu
+    danych raw_*."""
     return data_fetch.get_many(config.all_tickers(), force=force)
 
 
