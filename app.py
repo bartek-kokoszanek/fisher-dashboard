@@ -31,7 +31,7 @@ from gpw_tickers import GPW_TICKERS
 try:
     _bridge = ["GEMINI_API_KEY", "GEMINI_API_KEYS", "LLM_API_KEY", "LLM_BASE_URL",
                "LLM_MODEL", "LLM_MODELS", "DEEP_MODEL", "STT_MODEL",
-               "GITHUB_TOKEN", "GIST_ID", "YT_PROXY"]
+               "GITHUB_TOKEN", "GIST_ID", "YT_PROXY", "ALPHAVANTAGE_API_KEY"]
     _bridge += [f"GEMINI_API_KEY_{i}" for i in range(2, 6)]
     for _k in _bridge:
         if _k in st.secrets and not os.environ.get(_k):

@@ -19,7 +19,9 @@ from charts import (cashflow_chart, data, debt_chart, dividend_chart, eps_chart,
 
 
 @st.cache_data(show_spinner=False, ttl=24 * 3600)
-def _hist(ticker: str) -> dict:
+def _hist(ticker: str, _schema: int = data.SCHEMA) -> dict:
+    # _schema w sygnaturze inwaliduje wpisy w pamieci przy zmianie schematu
+    # (hot-reload na Streamlit Cloud nie restartuje procesu -> stary cache zyje)
     return data.get_history(ticker)
 
 
@@ -221,14 +223,16 @@ def render(ticker: str, row: dict):
         period = st.segmented_control(
             "Okres", list(price_chart.RANGES.keys()), default="1R",
             key=f"pxper_{ticker}", label_visibility="collapsed")
+    _sources = data.price_sources_for(ticker)
     with tc2:
         src_label = st.selectbox(
-            "Źródło cen", list(data.PRICE_SOURCES.values()),
+            "Źródło cen", list(_sources.values()),
             key=f"pxsrc_{ticker}",
-            help="Ceny można pobrać z Yahoo Finance albo ze Stooq "
-                 "(niezależne źródło, darmowe CSV). Fundamenty i prognozy "
-                 "analityków są dostępne tylko z Yahoo Finance.")
-    src = next(k for k, v in data.PRICE_SOURCES.items() if v == src_label)
+            help="Niezależne źródła cen: GPW (oficjalne api wykresów gpw.pl) "
+                 "dla spółek warszawskich, Alpha Vantage (darmowy klucz "
+                 "ALPHAVANTAGE_API_KEY w Secrets, 25 zapytań/dobę) dla USA. "
+                 "Fundamenty i prognozy analityków są dostępne tylko z Yahoo.")
+    src = next(k for k, v in _sources.items() if v == src_label)
     metrics = st.multiselect(
         "Serie na wykresie", list(price_chart.METRICS.keys()),
         default=price_chart.DEFAULT_METRICS, key=f"pxmet_{ticker}",

@@ -55,6 +55,21 @@ fundamentalne pochodzą z **Yahoo Finance** (biblioteka `yfinance`), darmowo, dl
 giełd. TradingView używasz na końcu: eksportujesz ranking jako listę tickerów i
 importujesz do watchlisty, żeby oglądać wykresy (patrz niżej).
 
+### Źródła danych i świeżość
+
+Wszędzie, gdzie dane są pobierane, aplikacja pokazuje **źródło + datę/godzinę
+aktualizacji** (czas polski). Ceny na wykresie kursu można pobrać z niezależnego
+źródła (selektor przy wykresie):
+
+| Rynek | Źródła cen | Uwagi |
+|---|---|---|
+| GPW (.WA) | Yahoo Finance / **GPW (oficjalne)** | api wykresów gpw.pl (chart-json), bez klucza |
+| Nasdaq/USA | Yahoo Finance / **Alpha Vantage** | darmowy klucz `ALPHAVANTAGE_API_KEY` w Secrets ([alphavantage.co](https://www.alphavantage.co/support/#api-key)), limit 25 zapytań/dobę |
+
+Fundamenty (sprawozdania, prognozy analityków) mają tylko źródło Yahoo —
+darmowej alternatywy brak. Stooq odpadł: od 2026 blokuje klientów HTTP
+weryfikacją przeglądarki (JS challenge).
+
 ---
 
 ## Jak metoda Fishera trafia do liczb
@@ -204,9 +219,16 @@ liczba akcji z wykryciem buyback/dilution, EPS, book value, marża operacyjna) o
 Kod modularny w [charts/](charts/): `helpers.py` (kolory, layout, CAGR, format),
 `data.py` (historia z yfinance, cache), `*_chart.py` (po jednej funkcji na wykres).
 
-Pierwszy wykres to **kurs akcji** z przełącznikiem okresu (1 rok / 2 / 3 / 5 lat).
-Wykresy Revenue i EPS pokazują też **prognozy analityków** (kolejne ~2 lata
-obrachunkowe, z widełkami low/high) — z tego samego źródła (yfinance).
+Pierwszy wykres to **kurs akcji** z okresami `1M/3M/6M/YTD/1R/3L/5L/10L/20L/Max`,
+**wyborem źródła cen** (Yahoo / GPW / Alpha Vantage — patrz „Źródła danych")
+i **nakładkami metryk** (multiselect): cena docelowa (konsensus), potencjał do
+celu %, P/E, P/S, EV/EBITDA (z medianami 3-letnimi), marża operacyjna,
+przychody/zysk netto/FCF oraz EPS z prognozami. Serie o tej samej jednostce
+trafiają do wspólnych paneli pod wykresem ceny; ostatnie wartości mają etykiety
+przy prawej krawędzi. Wskaźniki tygodniowe liczone są z ceny i rocznych
+sprawozdań (przybliżenie). Wykresy Revenue i EPS pokazują też **prognozy
+analityków** (kolejne ~2 lata obrachunkowe, z widełkami low/high) — z tego
+samego źródła (yfinance).
 
 > ⚠️ Darmowy yfinance daje ~5 lat rocznych sprawozdań (dywidendy, ceny i P/E —
 > dłużej; prognozy analityków ~2 lata naprzód). Brak danych = komunikat, nie błąd.
