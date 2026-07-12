@@ -281,9 +281,11 @@ Tabela pokazuje obok wyniku Fishera: cenę, **średnią cenę docelową** analit
 (1 = Strong Buy … 5 = Sell), **datę najbliższego sprawozdania kwartalnego**
 oraz **konsensus na najbliższy kwartał**: oczekiwany wzrost przychodów
 i zysku (EPS) rok do roku, w procentach (np. `+25%` / `−15%`), zielony przy
-wzroście i czerwony przy spadku. Do tego C/Z i kapitalizację.
-Źródło: Yahoo Finance (kalendarz wyników + szacunki analityków);
-dla części spółek GPW konsensus jest niedostępny (puste pola).
+wzroście i czerwony przy spadku. Dalej **kalendarz dywidendy**: dzień
+odcięcia prawa (ex-date), dzień wypłaty i kwota ostatniej dywidendy na akcję
+(w walucie notowań). Do tego C/Z i kapitalizację.
+Źródło: Yahoo Finance (kalendarz wyników/dywidend + szacunki analityków);
+dla części spółek GPW konsensus lub daty są niedostępne (puste pola).
 
 ---
 

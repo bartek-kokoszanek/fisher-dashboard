@@ -170,15 +170,22 @@ def fetch_raw(ticker: str) -> dict:
     if price and target_mean:
         target_upside = target_mean / price - 1
 
-    # data najblizszych wynikow kwartalnych (kalendarz Yahoo)
-    next_earnings = None
+    # kalendarz Yahoo: najblizsze wyniki kwartalne + daty dywidendy
+    next_earnings = ex_div_date = div_pay_date = None
     try:
-        eds = (t.calendar or {}).get("Earnings Date") or []
+        cal = t.calendar or {}
+        eds = cal.get("Earnings Date") or []
         today = datetime.now(timezone.utc).date()
         future = sorted(d for d in eds if d >= today)
         pick = future[0] if future else (max(eds) if eds else None)
         if pick:
             next_earnings = pick.isoformat()
+        # dzien odciecia prawa do dywidendy (ex-div) i dzien wyplaty;
+        # Yahoo pokazuje najblizsze zadeklarowane albo ostatnie minione
+        if cal.get("Ex-Dividend Date"):
+            ex_div_date = cal["Ex-Dividend Date"].isoformat()
+        if cal.get("Dividend Date"):
+            div_pay_date = cal["Dividend Date"].isoformat()
     except Exception:
         pass
 
@@ -224,6 +231,10 @@ def fetch_raw(ticker: str) -> dict:
         "next_earnings_date": next_earnings,
         "rev_growth_est": rev_growth_est,
         "eps_growth_est": eps_growth_est,
+        # --- dywidenda (kalendarz + ostatnia kwota na akcje) ---
+        "ex_dividend_date": ex_div_date,
+        "dividend_pay_date": div_pay_date,
+        "last_dividend_value": info.get("lastDividendValue"),
         "trailing_pe": info.get("trailingPE"),
         "return_6m": return_6m,
         "is_financial": ticker in config.FINANCIALS or (info.get("sector") == "Financial Services"),
@@ -253,9 +264,10 @@ def get(ticker: str, max_age_hours: float = 24.0, force: bool = False) -> dict:
                 cached = json.load(f)
             ts = datetime.fromisoformat(cached["fetched_at"])
             age = (datetime.now(timezone.utc) - ts).total_seconds() / 3600
-            # "next_earnings_date" in cached = wersjonowanie schematu: starsze
-            # cache (sprzed kolumn kalendarza/konsensusu) odswiezaja sie same
-            if age <= max_age_hours and "next_earnings_date" in cached:
+            # "ex_dividend_date" in cached = wersjonowanie schematu: starsze
+            # cache (sprzed kolumn kalendarza/konsensusu/dywidend) odswiezaja
+            # sie same
+            if age <= max_age_hours and "ex_dividend_date" in cached:
                 return cached
         except Exception:
             pass
