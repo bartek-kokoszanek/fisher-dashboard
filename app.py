@@ -81,7 +81,7 @@ def build_row(raw: dict, guru_key: str) -> dict:
 
 
 @st.cache_data(show_spinner=False, ttl=24 * 3600)
-def load_raws(force: bool, _v: int = 2):
+def load_raws(force: bool, _v: int = 3):
     """Surowe dane bazowego uniwersum (cache Streamlita + cache plikowy 24h).
 
     ttl + _v: bez ttl wpisy w pamieci zyly wiecznie (deploy na Streamlit
@@ -321,7 +321,8 @@ view = df.sort_values("combined", ascending=False, na_position="last").copy()
 # kolumny w stylu skanera TradingView
 for col in ("price", "target_mean", "target_upside", "analyst_count",
             "recommendation_mean", "recommendation_key", "trailing_pe", "market_cap",
-            "next_earnings_date", "rev_growth_est", "eps_growth_est"):
+            "next_earnings_date", "rev_growth_est", "eps_growth_est",
+            "ex_dividend_date", "dividend_pay_date", "last_dividend_value"):
     if col not in view.columns:
         view[col] = None
 view["target_upside_pct"] = view["target_upside"].astype(float) * 100
@@ -346,6 +347,7 @@ view["signal"] = view["combined"].map(
 table = view[["ticker", "name", "segment", "price", "target_mean",
               "target_upside_pct", "analyst_count", "rec_label",
               "next_earnings_date", "rev_growth_pct", "eps_growth_pct",
+              "ex_dividend_date", "dividend_pay_date", "last_dividend_value",
               "trailing_pe", "market_cap", "combined", "signal",
               "coverage"]].rename(columns={
     "ticker": "Symbol", "name": "Spolka", "segment": "Segment", "price": "Cena",
@@ -353,6 +355,8 @@ table = view[["ticker", "name", "segment", "price", "target_mean",
     "analyst_count": "Rekom.", "rec_label": "Ocena analitykow",
     "next_earnings_date": "Wyniki (data)", "rev_growth_pct": "Przych. r/r (est.)",
     "eps_growth_pct": "Zysk r/r (est.)",
+    "ex_dividend_date": "Dyw. ex-date", "dividend_pay_date": "Dyw. wyplata",
+    "last_dividend_value": "Dyw./akcje",
     "trailing_pe": "C/Z", "market_cap": "Kap. rynk.",
     "combined": "Wynik", "signal": "Sygnal", "coverage": "Pokrycie %"})
 
@@ -384,18 +388,30 @@ st.dataframe(
             format="%+.1f%%",
             help="Konsensus analitykow: oczekiwany wzrost zysku (EPS) r/r "
                  "na najblizszy raportowany kwartal"),
+        "Dyw. ex-date": st.column_config.TextColumn(
+            help="Dzien odciecia prawa do dywidendy (ex-dividend) - "
+                 "najblizszy zadeklarowany albo ostatni miniony"),
+        "Dyw. wyplata": st.column_config.TextColumn(
+            help="Dzien wyplaty dywidendy (dla czesci spolek GPW "
+                 "Yahoo nie podaje)"),
+        "Dyw./akcje": st.column_config.NumberColumn(
+            format="%.2f",
+            help="Kwota ostatniej dywidendy na akcje (w walucie notowan)"),
         "C/Z": st.column_config.NumberColumn(format="%.1f"),
         "Kap. rynk.": st.column_config.NumberColumn(format="compact"),
         "Wynik": st.column_config.ProgressColumn("Wynik", min_value=0, max_value=100, format="%.1f"),
         "Pokrycie %": st.column_config.NumberColumn(format="%d%%"),
     },
 )
-st.caption("Cena i cena docelowa w walucie notowan (Nasdaq: USD, GPW: PLN). "
+st.caption("Cena, cena docelowa i dywidenda w walucie notowan (Nasdaq: USD, GPW: PLN). "
            "Rekom. = liczba analitykow; ocena 1=Strong Buy ... 5=Sell. "
            "Wyniki (data) = najblizsze sprawozdanie kwartalne. "
            "Przych./Zysk r/r (est.) = konsensus analitykow na najblizszy kwartal "
            "wzgledem tego samego kwartalu rok wczesniej (zielone = wzrost, "
            "czerwone = spadek). "
+           "Dyw. ex-date / wyplata / na akcje = kalendarz dywidendy i kwota "
+           "ostatniej dywidendy (Yahoo; daty moga byc minione, jesli spolka "
+           "nie zadeklarowala kolejnej). "
            "Sygnal = decyzja wg wybranej strategii (Kupuj/Akumuluj/Trzymaj/Sprzedaj) "
            "na podstawie Wyniku. Dla czesci spolek GPW konsensus analitykow niedostepny.")
 
