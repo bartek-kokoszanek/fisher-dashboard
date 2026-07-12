@@ -170,6 +170,42 @@ def fetch_raw(ticker: str) -> dict:
     if price and target_mean:
         target_upside = target_mean / price - 1
 
+    # data najblizszych wynikow kwartalnych (kalendarz Yahoo)
+    next_earnings = None
+    try:
+        eds = (t.calendar or {}).get("Earnings Date") or []
+        today = datetime.now(timezone.utc).date()
+        future = sorted(d for d in eds if d >= today)
+        pick = future[0] if future else (max(eds) if eds else None)
+        if pick:
+            next_earnings = pick.isoformat()
+    except Exception:
+        pass
+
+    # konsensus analitykow: oczekiwany wzrost r/r przychodow i zysku (EPS)
+    # na najblizszy raportowany kwartal ('0q'; fallback: biezacy rok '0y')
+    def _est_growth(df):
+        try:
+            if df is None or getattr(df, "empty", True) or "growth" not in df.columns:
+                return None
+            for period in ("0q", "0y"):
+                if period in df.index:
+                    v = df.loc[period, "growth"]
+                    if v is not None and not pd.isna(v):
+                        return float(v)
+        except Exception:
+            pass
+        return None
+
+    try:
+        rev_growth_est = _est_growth(t.revenue_estimate)
+    except Exception:
+        rev_growth_est = None
+    try:
+        eps_growth_est = _est_growth(t.earnings_estimate)
+    except Exception:
+        eps_growth_est = None
+
     raw = {
         "ticker": ticker,
         "name": info.get("shortName") or info.get("longName") or config.NAMES.get(ticker, ticker),
@@ -185,6 +221,9 @@ def fetch_raw(ticker: str) -> dict:
         "analyst_count": info.get("numberOfAnalystOpinions"),
         "recommendation_mean": info.get("recommendationMean"),
         "recommendation_key": info.get("recommendationKey"),
+        "next_earnings_date": next_earnings,
+        "rev_growth_est": rev_growth_est,
+        "eps_growth_est": eps_growth_est,
         "trailing_pe": info.get("trailingPE"),
         "return_6m": return_6m,
         "is_financial": ticker in config.FINANCIALS or (info.get("sector") == "Financial Services"),
@@ -214,9 +253,9 @@ def get(ticker: str, max_age_hours: float = 24.0, force: bool = False) -> dict:
                 cached = json.load(f)
             ts = datetime.fromisoformat(cached["fetched_at"])
             age = (datetime.now(timezone.utc) - ts).total_seconds() / 3600
-            # "return_6m" in cached = wersjonowanie schematu: starsze cache
-            # (sprzed momentum/kolumn analitykow) sa odswiezane automatycznie
-            if age <= max_age_hours and "return_6m" in cached:
+            # "next_earnings_date" in cached = wersjonowanie schematu: starsze
+            # cache (sprzed kolumn kalendarza/konsensusu) odswiezaja sie same
+            if age <= max_age_hours and "next_earnings_date" in cached:
                 return cached
         except Exception:
             pass

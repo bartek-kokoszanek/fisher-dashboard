@@ -278,7 +278,11 @@ eksport/import JSON jako ręczny backup.
 
 Tabela pokazuje obok wyniku Fishera: cenę, **średnią cenę docelową** analityków,
 **% do celu** (kolorowany), **liczbę rekomendacji**, ocenę konsensusu
-(1 = Strong Buy … 5 = Sell), C/Z i kapitalizację. Źródło: Yahoo Finance;
+(1 = Strong Buy … 5 = Sell), **datę najbliższego sprawozdania kwartalnego**
+oraz **konsensus na najbliższy kwartał**: oczekiwany wzrost przychodów
+i zysku (EPS) rok do roku, w procentach (np. `+25%` / `−15%`), zielony przy
+wzroście i czerwony przy spadku. Do tego C/Z i kapitalizację.
+Źródło: Yahoo Finance (kalendarz wyników + szacunki analityków);
 dla części spółek GPW konsensus jest niedostępny (puste pola).
 
 ---
