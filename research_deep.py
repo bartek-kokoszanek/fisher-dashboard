@@ -30,7 +30,9 @@ TRANSCRIPT_CHARS = 4000
 
 
 def available() -> bool:
-    return bool(os.environ.get("GEMINI_API_KEY"))
+    # te same zrodla kluczy co ai_research (GEMINI_API_KEY/KEYS/_2.., LLM_API_KEY)
+    import ai_research
+    return ai_research.available()
 
 
 def _cache_path(ticker: str) -> str:

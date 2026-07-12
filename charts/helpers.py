@@ -72,6 +72,29 @@ def base_layout(fig, height: int = 260, legend: bool = False, time_axis: bool = 
 
 # --- Formatowanie ---
 
+def fmt_dt(iso: str | None) -> str:
+    """ISO-timestamp (UTC) -> 'YYYY-MM-DD HH:MM' czasu polskiego.
+
+    Do podpisow 'zaktualizowano: ...' przy danych. Fallback: czas lokalny
+    systemu, a przy nieparsowalnym wejsciu — surowy tekst.
+    """
+    if not iso:
+        return "—"
+    try:
+        from datetime import datetime, timezone
+        dt = datetime.fromisoformat(str(iso))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        try:
+            from zoneinfo import ZoneInfo
+            dt = dt.astimezone(ZoneInfo("Europe/Warsaw"))
+        except Exception:
+            dt = dt.astimezone()
+        return dt.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return str(iso)
+
+
 def human(x) -> str:
     """Duze liczby w skrocie: 4.5T / 23.2B / 512M / 8.1K."""
     if not is_num(x):

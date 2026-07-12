@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 
 import pandas as pd
 import streamlit as st
@@ -22,6 +23,7 @@ import research_deep
 import universe
 import watchlists
 import yt_transcribe
+from charts.helpers import fmt_dt
 from gpw_tickers import GPW_TICKERS
 
 # Na Streamlit Community Cloud klucz API wpisujesz w panelu Secrets. Przenosimy go
@@ -122,6 +124,13 @@ def render_pwpa(pick: str):
         for r in reps:
             st.markdown(f"**{r['date']}** · {r['type']} · {r['firm']} — "
                         f"[źródło (PDF)]({r['pdf_url']})")
+        try:
+            _idx_ts = datetime.fromtimestamp(
+                os.path.getmtime(pwpa.INDEX_CACHE), tz=timezone.utc).isoformat()
+        except OSError:
+            _idx_ts = None
+        st.caption(f"🗓 Źródło: **gpw.pl/gpwpa** (program PWPA) · lista raportów "
+                   f"zaktualizowana {fmt_dt(_idx_ts)} (cache 12h)")
 
         latest = reps[0]
         cached = pwpa.load_extract(latest["pdf_url"])
@@ -363,6 +372,15 @@ st.caption("Cena i cena docelowa w walucie notowan (Nasdaq: USD, GPW: PLN). "
            "Sygnal = decyzja wg wybranej strategii (Kupuj/Akumuluj/Trzymaj/Sprzedaj) "
            "na podstawie Wyniku. Dla czesci spolek GPW konsensus analitykow niedostepny.")
 
+# swiezosc danych rankingu: zakres czasow pobrania widocznych spolek
+if "fetched_at" in view.columns:
+    _fts = sorted(t for t in view["fetched_at"].dropna().tolist() if t)
+    if _fts:
+        _fresh = (f"zaktualizowano {fmt_dt(_fts[0])}" if _fts[0] == _fts[-1] else
+                  f"zaktualizowano między {fmt_dt(_fts[0])} a {fmt_dt(_fts[-1])}")
+        st.caption(f"🗓 Źródło danych: **Yahoo Finance** · {_fresh} "
+                   f"(cache 24h — wymuś pobranie przyciskiem 🔄 w panelu bocznym).")
+
 st.download_button(
     "⬇ Eksport watchlisty do TradingView (CSV tickerow)",
     data="\n".join(view["ticker"].tolist()),
@@ -434,6 +452,8 @@ if choices:
     c2.metric("Ilosciowy", _num(row.get("score")))
     c3.metric("Jakosciowy (AI)", _num(row.get("quality")))
     c4.metric("Pokrycie danych", f"{row.get('coverage', 0):.0f}%")
+    st.caption(f"🗓 Dane fundamentalne: **Yahoo Finance** · zaktualizowano "
+               f"{fmt_dt(row.get('fetched_at'))}")
 
     # Sygnal inwestycyjny wg wybranej strategii (czy by kupil / sprzedal)
     av = fisher_score.action_verdict(row.get("combined"))
@@ -514,7 +534,9 @@ if choices:
                 if note:
                     st.caption(note)
             st.info(ai.get("summary", ""))
-            st.caption(f"Model: {ai.get('model')} · pewnosc: {ai.get('confidence')}%")
+            st.caption(f"Model: {ai.get('model')} · pewnosc: {ai.get('confidence')}% "
+                       f"· wygenerowano {fmt_dt(ai.get('researched_at'))} "
+                       "(wiedza modelu, bez wyszukiwarki)")
         else:
             st.caption("Brak researchu AI dla tej strategii. Uruchom przyciskiem powyzej.")
 
@@ -584,7 +606,9 @@ if choices:
             with st.expander(f"🔗 Zrodla ({len(deep['sources'])})"):
                 for src in deep["sources"]:
                     st.markdown(f"- [{src.get('title', src['url'])}]({src['url']})")
-        st.caption(f"Model: {deep.get('model')} · {deep.get('researched_at', '')}")
+        st.caption(f"🗓 Źródła: Google Search (grounding) + YouTube + strona IR · "
+                   f"model: {deep.get('model')} · wygenerowano "
+                   f"{fmt_dt(deep.get('researched_at'))}")
     else:
         st.caption("Brak deep researchu dla tej spolki. Uruchom przyciskiem powyzej.")
 
@@ -639,8 +663,10 @@ if choices:
                         st.markdown(f"- {p}")
                 with st.expander("Fragment transkryptu"):
                     st.write(res.get("transcript_excerpt", ""))
-                st.caption(f"Postawa: {res.get('speaker_stance', '—')} · "
-                           f"{res.get('analyzed_at', '')}")
+                st.caption(f"🗓 Źródło: YouTube (transkrypt: "
+                           f"{res.get('transcript_source', '—')}) · "
+                           f"postawa: {res.get('speaker_stance', '—')} · "
+                           f"przeanalizowano {fmt_dt(res.get('analyzed_at'))}")
 else:
     st.info("Brak spolek spelniajacych filtry. Zluzuj min. pokrycie lub odswiez dane.")
 
