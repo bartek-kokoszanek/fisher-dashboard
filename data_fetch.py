@@ -171,21 +171,75 @@ def fetch_raw(ticker: str) -> dict:
         target_upside = target_mean / price - 1
 
     # kalendarz Yahoo: najblizsze wyniki kwartalne + daty dywidendy
-    next_earnings = ex_div_date = div_pay_date = None
+    next_earnings = cal_ex_div = cal_pay = None
+    today = datetime.now(timezone.utc).date()
     try:
         cal = t.calendar or {}
         eds = cal.get("Earnings Date") or []
-        today = datetime.now(timezone.utc).date()
+        # tylko PRZYSZLE publikacje — minione daty nie sa pokazywane
         future = sorted(d for d in eds if d >= today)
-        pick = future[0] if future else (max(eds) if eds else None)
-        if pick:
-            next_earnings = pick.isoformat()
-        # dzien odciecia prawa do dywidendy (ex-div) i dzien wyplaty;
-        # Yahoo pokazuje najblizsze zadeklarowane albo ostatnie minione
+        if future:
+            next_earnings = future[0].isoformat()
         if cal.get("Ex-Dividend Date"):
-            ex_div_date = cal["Ex-Dividend Date"].isoformat()
+            cal_ex_div = cal["Ex-Dividend Date"].isoformat()
         if cal.get("Dividend Date"):
-            div_pay_date = cal["Dividend Date"].isoformat()
+            cal_pay = cal["Dividend Date"].isoformat()
+    except Exception:
+        pass
+
+    # dywidenda: dane z BIEZACEGO roku, a gdy ich brak — z ubieglego.
+    # Kandydaci: zadeklarowana w kalendarzu (ex-div + kwota lastDividendValue
+    # + ew. dzien wyplaty) oraz historia wyplat (t.dividends: ex-date, kwota).
+    # Wygrywa najnowsza data ex-div. Dzien wyplaty zna tylko kalendarz Yahoo
+    # (dla czesci GPW brak — pole puste).
+    ex_div_date = div_pay_date = None
+    dividend_amount = None
+    candidates = []  # (ex_date_iso, kwota, pay_date_iso)
+    if cal_ex_div:
+        candidates.append((cal_ex_div, info.get("lastDividendValue"), cal_pay))
+    try:
+        divs = t.dividends
+        if divs is not None and len(divs):
+            for yr in (today.year, today.year - 1):
+                sel = divs[divs.index.year == yr]
+                if len(sel):
+                    candidates.append((sel.index[-1].date().isoformat(),
+                                       float(sel.iloc[-1]), None))
+                    break
+    except Exception:
+        pass
+    valid = [c for c in candidates
+             if c[0] and int(c[0][:4]) >= today.year - 1]
+    if valid:
+        ex_div_date, dividend_amount, div_pay_date = max(valid, key=lambda c: c[0])
+
+    # ostatnie OPUBLIKOWANE wyniki kwartalne + zaskoczenie vs konsensus EPS.
+    # (Yahoo nie udostepnia wstecznego konsensusu przychodow — tylko EPS.)
+    last_q_date = last_q_revenue = last_q_eps = eps_surprise = None
+    try:
+        qinc = t.quarterly_income_stmt
+        rev_row = _row(qinc, "total", "revenue")
+        if rev_row is None:
+            rev_row = _row(qinc, "revenue")
+        if rev_row is not None:
+            s = rev_row.dropna()
+            if len(s):
+                last_q_revenue = float(s.iloc[0])
+                last_q_date = s.index[0].date().isoformat()
+    except Exception:
+        pass
+    try:
+        eh = t.earnings_history
+        if eh is not None and not eh.empty:
+            ehs = eh.dropna(subset=["epsActual"])
+            if len(ehs):
+                last = ehs.iloc[-1]  # indeks rosnaco po kwartale -> ostatni
+                last_q_eps = float(last["epsActual"])
+                sp = last.get("surprisePercent")
+                if sp is not None and not pd.isna(sp):
+                    eps_surprise = float(sp)
+                if last_q_date is None:
+                    last_q_date = str(ehs.index[-1].date())
     except Exception:
         pass
 
@@ -231,10 +285,15 @@ def fetch_raw(ticker: str) -> dict:
         "next_earnings_date": next_earnings,
         "rev_growth_est": rev_growth_est,
         "eps_growth_est": eps_growth_est,
-        # --- dywidenda (kalendarz + ostatnia kwota na akcje) ---
+        # --- dywidenda (biezacy rok, fallback ubiegly) ---
         "ex_dividend_date": ex_div_date,
         "dividend_pay_date": div_pay_date,
-        "last_dividend_value": info.get("lastDividendValue"),
+        "last_dividend_value": dividend_amount,
+        # --- ostatnie opublikowane wyniki kwartalne ---
+        "last_q_date": last_q_date,
+        "last_q_revenue": last_q_revenue,
+        "last_q_eps": last_q_eps,
+        "eps_surprise": eps_surprise,
         "trailing_pe": info.get("trailingPE"),
         "return_6m": return_6m,
         "is_financial": ticker in config.FINANCIALS or (info.get("sector") == "Financial Services"),
@@ -264,10 +323,9 @@ def get(ticker: str, max_age_hours: float = 24.0, force: bool = False) -> dict:
                 cached = json.load(f)
             ts = datetime.fromisoformat(cached["fetched_at"])
             age = (datetime.now(timezone.utc) - ts).total_seconds() / 3600
-            # "ex_dividend_date" in cached = wersjonowanie schematu: starsze
-            # cache (sprzed kolumn kalendarza/konsensusu/dywidend) odswiezaja
-            # sie same
-            if age <= max_age_hours and "ex_dividend_date" in cached:
+            # "eps_surprise" in cached = wersjonowanie schematu: starsze cache
+            # (sprzed kolumn wynikow kwartalnych) odswiezaja sie same
+            if age <= max_age_hours and "eps_surprise" in cached:
                 return cached
         except Exception:
             pass

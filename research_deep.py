@@ -50,6 +50,102 @@ def load_cached(ticker: str) -> dict | None:
 
 # ---------------------------------------------------------------- YouTube ---
 
+def _yt_api_key() -> str | None:
+    return os.environ.get("YOUTUBE_API_KEY", "").strip() or None
+
+
+def _parse_iso_duration(s: str | None) -> float:
+    """ISO-8601 'PT1H2M3S' -> minuty (YouTube Data API, contentDetails)."""
+    import re
+    m = re.fullmatch(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", s or "")
+    if not m:
+        return 0.0
+    h, mi, se = (int(x or 0) for x in m.groups())
+    return h * 60 + mi + se / 60
+
+
+def yt_search_api(name: str, ticker: str, market: str,
+                  months: int = MONTHS_BACK) -> list[dict]:
+    """Filmy o spolce przez OFICJALNE YouTube Data API v3 (env YOUTUBE_API_KEY).
+
+    Dziala niezawodnie z serwerow chmurowych (w przeciwienstwie do yt-dlp,
+    ktore YouTube blokuje po IP). Kilka zapytan (PL/EN, rozne ujecia) daje
+    bogatsza liste; wyniki laczone i deduplikowane. Koszt: ~100 jednostek
+    na zapytanie przy darmowym limicie 10 000/dobe — wyniki cache'uje UI.
+    Odfiltrowuje Shorts (<2 min).
+    """
+    import requests
+
+    key = _yt_api_key()
+    if not key:
+        raise RuntimeError("Brak YOUTUBE_API_KEY.")
+    after = (datetime.now(timezone.utc)
+             - timedelta(days=months * 30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if market == "GPW":
+        queries = [(f"{name} akcje", "relevance"),
+                   (f"{name} analiza", "relevance"),
+                   (f"{name} wyniki", "date"),
+                   (f"{name} GPW", "date")]
+    else:
+        queries = [(f"{name} stock analysis", "relevance"),
+                   (f"{ticker} stock", "date"),
+                   (f"{name} earnings", "relevance"),
+                   (f"{name} stock news", "date")]
+
+    seen: dict[str, dict] = {}
+    for q, order in queries:
+        try:
+            r = requests.get(
+                "https://www.googleapis.com/youtube/v3/search",
+                params={"part": "snippet", "q": q, "type": "video",
+                        "order": order, "publishedAfter": after,
+                        "maxResults": 15, "key": key},
+                timeout=30)
+            r.raise_for_status()
+            items = r.json().get("items", [])
+        except Exception:
+            continue  # pojedyncze zapytanie moze pasc (limit) — bierz reszte
+        for it in items:
+            vid = (it.get("id") or {}).get("videoId")
+            sn = it.get("snippet") or {}
+            if vid and vid not in seen:
+                seen[vid] = {"id": vid, "title": sn.get("title"),
+                             "channel": sn.get("channelTitle"),
+                             "date": (sn.get("publishedAt") or "")[:10],
+                             "views": None, "minutes": None}
+    if not seen:
+        return []
+
+    # szczegoly: dlugosc + wyswietlenia (1 jednostka na 50 filmow)
+    ids = list(seen)
+    for i in range(0, len(ids), 50):
+        try:
+            r = requests.get(
+                "https://www.googleapis.com/youtube/v3/videos",
+                params={"part": "contentDetails,statistics",
+                        "id": ",".join(ids[i:i + 50]), "key": key},
+                timeout=30)
+            r.raise_for_status()
+            for it in r.json().get("items", []):
+                v = seen.get(it["id"])
+                if v is None:
+                    continue
+                v["minutes"] = _parse_iso_duration(
+                    (it.get("contentDetails") or {}).get("duration"))
+                try:
+                    v["views"] = int((it.get("statistics") or {})
+                                     .get("viewCount") or 0)
+                except (TypeError, ValueError):
+                    pass
+        except Exception:
+            pass
+
+    videos = [v for v in seen.values()
+              if v.get("minutes") is None or 2 <= v["minutes"] <= 240]
+    videos.sort(key=lambda v: v.get("date") or "", reverse=True)
+    return videos[:30]
+
+
 def _yt_transcript(video_id: str) -> str | None:
     """Transkrypt filmu (pl/en) albo None. Fail-soft — chmura bywa blokowana.
 
@@ -80,9 +176,28 @@ def _yt_transcript(video_id: str) -> str | None:
         return None
 
 
-def yt_research(name: str, ticker: str, market: str) -> dict:
-    """Filmy o spolce z ostatnich MONTHS_BACK miesiecy + transkrypty (best-effort)."""
+def yt_research(name: str, ticker: str, market: str,
+                months: int = MONTHS_BACK) -> dict:
+    """Filmy o spolce z ostatnich `months` miesiecy + transkrypty (best-effort).
+
+    Wyszukiwanie: najpierw oficjalne YouTube Data API (YOUTUBE_API_KEY —
+    dziala z chmury, kilka zapytan = bogatsza lista), fallback yt-dlp
+    (dziala lokalnie; na serwerach czesto blokowany po IP).
+    """
     out = {"videos": [], "transcripts": {}, "note": None}
+
+    if _yt_api_key():
+        try:
+            out["videos"] = yt_search_api(name, ticker, market, months)
+        except Exception as e:
+            out["note"] = f"YouTube Data API nie powiodlo sie: {e}"
+    if out["videos"]:
+        for v in out["videos"][:MAX_TRANSCRIPTS]:
+            t = _yt_transcript(v["id"])
+            if t:
+                out["transcripts"][v["id"]] = t
+        return out
+
     try:
         from yt_dlp import YoutubeDL
     except Exception as e:
@@ -91,7 +206,7 @@ def yt_research(name: str, ticker: str, market: str) -> dict:
 
     query = (f"{name} akcje analiza" if market == "GPW"
              else f"{name} {ticker} stock analysis")
-    cutoff = datetime.now(timezone.utc) - timedelta(days=MONTHS_BACK * 30)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=months * 30)
 
     flat_opts = {"quiet": True, "no_warnings": True, "extract_flat": True,
                  "skip_download": True, "noprogress": True}
@@ -100,7 +215,9 @@ def yt_research(name: str, ticker: str, market: str) -> dict:
             info = ydl.extract_info(f"ytsearch30:{query}", download=False)
         entries = [e for e in (info.get("entries") or []) if e]
     except Exception as e:
-        out["note"] = f"Wyszukiwanie YouTube nie powiodlo sie: {e}"
+        out["note"] = ("Wyszukiwanie YouTube nie powiodlo sie (yt-dlp bywa "
+                       "blokowany z serwerow). Dodaj YOUTUBE_API_KEY w Secrets "
+                       f"— oficjalne API dziala z chmury. Blad: {e}")
         return out
 
     # plaskie wyniki nie maja daty publikacji — dociagamy metadane

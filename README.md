@@ -187,34 +187,40 @@ Sentyment **nie wpływa** na Wynik Fishera (to zjawisko krótkoterminowe) — je
 wyświetlany osobno. Wyniki cache w `data/deep_<ticker>.json`. Wymaga `GEMINI_API_KEY`;
 model przez `DEEP_MODEL` (domyślnie `gemini-flash-latest`).
 
-### Transkrypcja i analiza wideo ([yt_transcribe.py](yt_transcribe.py))
+### Analiza wideo ([yt_transcribe.py](yt_transcribe.py))
 
-Podsekcja **🎧 Transkrypcja i analiza wideo**: wybierasz film z YouTube o spółce,
-a agent bierze jego transkrypt i wyciąga wnioski (kluczowe tezy, sentyment autora,
-ryzyka). Kolejność: najpierw **napisy** (szybko, w tym auto-ASR); gdy ich brak —
-pobiera **audio** (yt-dlp) i **transkrybuje przez Gemini** (model multimodalny).
-Wymaga `ffmpeg` (jest w [packages.txt](packages.txt), instalowany na Streamlit Cloud).
+Podsekcja **🎧 Analiza wideo (AI)**: wybierasz film z YouTube o spółce, a agent
+wyciąga wnioski (kluczowe tezy, sentyment autora, ryzyka, cytaty). Kolejność:
+najpierw **napisy** (szybkie i tanie); gdy ich brak — URL filmu trafia do
+**Gemini, który ogląda/odsłuchuje film po stronie Google** (video
+understanding). To rozwiązuje dawny problem blokady IP: nasz serwer nie pobiera
+nic z YouTube, więc działa też na Streamlit Cloud bez proxy.
 
-> ⚠️ **YouTube blokuje IP centrów danych** (błąd 403) — na Streamlit Cloud zarówno
-> napisy, jak i audio zwykle się nie zaciągną. Ta funkcja działa pewnie:
-> **(a) lokalnie** (`streamlit run app.py` z domowego IP), albo **(b) z proxy** —
-> ustaw `YT_PROXY = "http://user:pass@host:port"` (residential) w Secrets.
-> Deep research (findings z YouTube przez Google Search) działa na chmurze niezależnie.
->
-> Pozostałe ograniczenia: pobieranie audio to szara strefa ToS YouTube; filmy > 30 min
-> pomijane; audio-STT zużywa pulę Gemini (rotacja kluczy pomaga); cache w
-> `data/ytt_<video_id>.json`. Whisper lokalny nie zmieści się na Streamlit Cloud.
+**Lista filmów**: przy ustawionym `YOUTUBE_API_KEY` (darmowy klucz w Google
+Cloud → włącz *YouTube Data API v3*) wyszukiwanie idzie przez **oficjalne API**
+— kilka zapytań (PL/EN: „akcje", „analiza", „wyniki", „stock analysis",
+„earnings"), ostatnie **12 miesięcy**, z długością i liczbą wyświetleń,
+bez Shorts. Bez klucza fallback na yt-dlp (działa lokalnie; na serwerach
+bywa blokowany). Darmowy limit API: 10 000 jednostek/dobę ≈ ~25 spółek
+dziennie (wyniki cache'owane 6 h).
+
+> Ograniczenia: filmy > 60 min pomijane (tokeny); odsłuch przez Gemini zużywa
+> pulę darmowego tieru (rotacja kluczy/modeli pomaga); cache w
+> `data/ytt_<video_id>.json`. Napisy przez `YT_PROXY` nadal wspierane.
 
 ---
 
 ## Financial Charts
 
 W sekcji analizy spółki (między oceną a deep research) moduł **📊 Financial Charts**:
-kafelki KPI (Revenue/EPS CAGR, marża, ROE, P/E, dywidenda, FCF, dług/EBITDA) i
-15 wykresów Plotly w kartach 2-kolumnowych (przychody, wzrost, zysk, marże, ROE,
-ROIC, FCF, dług netto, **P/E history z pasmami i auto-komentarzem**, dywidendy,
-liczba akcji z wykryciem buyback/dilution, EPS, book value, marża operacyjna) oraz
-**interpretacja AI** (Financial Quality 0–100 + wycena Cheap/Fair/Expensive).
+na górze **interpretacja AI** (Financial Quality 0–100 + wycena
+Cheap/Fair/Expensive), która **uwzględnia Twoje prywatne notatki** z sekcji
+„📝 Moje notatki" (model ocenia, czy metryki potwierdzają Twoje tezy, czy im
+przeczą); niżej kafelki KPI (Revenue/EPS CAGR, marża, ROE, P/E, dywidenda, FCF,
+dług/EBITDA) i 15 wykresów Plotly w kartach 2-kolumnowych (przychody, wzrost,
+zysk, marże, ROE, ROIC, FCF, dług netto, **P/E history z pasmami
+i auto-komentarzem**, dywidendy, liczba akcji z wykryciem buyback/dilution,
+EPS, book value, marża operacyjna).
 
 Kod modularny w [charts/](charts/): `helpers.py` (kolory, layout, CAGR, format),
 `data.py` (historia z yfinance, cache), `*_chart.py` (po jednej funkcji na wykres).
@@ -278,14 +284,19 @@ eksport/import JSON jako ręczny backup.
 
 Tabela pokazuje obok wyniku Fishera: cenę, **średnią cenę docelową** analityków,
 **% do celu** (kolorowany), **liczbę rekomendacji**, ocenę konsensusu
-(1 = Strong Buy … 5 = Sell), **datę najbliższego sprawozdania kwartalnego**
-oraz **konsensus na najbliższy kwartał**: oczekiwany wzrost przychodów
-i zysku (EPS) rok do roku, w procentach (np. `+25%` / `−15%`), zielony przy
-wzroście i czerwony przy spadku. Dalej **kalendarz dywidendy**: dzień
-odcięcia prawa (ex-date), dzień wypłaty i kwota ostatniej dywidendy na akcję
-(w walucie notowań). Do tego C/Z i kapitalizację.
-Źródło: Yahoo Finance (kalendarz wyników/dywidend + szacunki analityków);
-dla części spółek GPW konsensus lub daty są niedostępne (puste pola).
+(1 = Strong Buy … 5 = Sell), **datę najbliższej PRZYSZŁEJ publikacji wyników**
+(puste = spółka nie ogłosiła terminu) oraz **konsensus na najbliższy kwartał**:
+oczekiwany wzrost przychodów i zysku (EPS) rok do roku, w procentach
+(np. `+25%` / `−15%`), zielony przy wzroście i czerwony przy spadku.
+Dalej **ostatnio opublikowane wyniki**: koniec kwartału, przychody, EPS oraz
+**EPS vs konsensus** (o ile pobito oczekiwania; wstecznego konsensusu
+przychodów darmowe Yahoo nie udostępnia). Następnie **dywidenda** wg reguły:
+dane z bieżącego roku, a gdy ich brak — z ubiegłego (ex-date, dzień wypłaty,
+kwota na akcję; dnia wypłaty dla większości spółek GPW Yahoo nie publikuje).
+Do tego C/Z i kapitalizację.
+Źródło: Yahoo Finance (kalendarz wyników/dywidend, historia wypłat, earnings
+history + szacunki analityków); dla części spółek GPW dane są niedostępne
+(puste pola).
 
 ---
 
