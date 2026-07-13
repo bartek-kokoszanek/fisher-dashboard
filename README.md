@@ -9,19 +9,6 @@ Dashboard rankingujący spółki według wybranej **strategii znanego inwestora*
 
 ---
 
-## ALPHA ENGINE (nowy widok, strona 2)
-
-W menu stron (panel boczny) dostępny jest **🔺 ALPHA ENGINE — Aktywna
-Inteligencja** ([pages/1_ALPHA_ENGINE.py](pages/1_ALPHA_ENGINE.py)): ciemny
-„terminal" z układem 3-kolumnowym (watchlist → cyfrowy bliźniak spółki →
-wywiad strategiczny), filtrami rynku, globalnym selektorem strategii i pełną
-responsywnością mobilną (<768 px: hero → zwijana watchlista → panele → wykresy
-w pionie). Działa na tych samych danych i scoringu co strona główna (cache
-`data/`); elementy bez backendu — **wycena DCF, obietnice zarządu, dziennik**
-— to oznaczone gwiazdką dane przykładowe do walidacji UI.
-
----
-
 ## Strategie inwestorów
 
 Przełącznik **🧭 Strategia inwestora** w panelu bocznym zmienia wagi metryk
