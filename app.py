@@ -193,12 +193,23 @@ guru_key = st.sidebar.selectbox(
 )
 st.sidebar.caption(gurus.get(guru_key)["desc"])
 
+# ustawienia UI (segmenty, kolumny tabeli) trwale w tym samym zapisie co listy
+wl = get_wl()
+settings = wl.setdefault("settings", {})
+
+_saved_seg = settings.get("segments")
+_seg_default = [s for s in (_saved_seg or ["WIG20", "mWIG40", "sWIG80"])
+                if s in gpw_indices.ALL_SEGMENTS]
 segments = st.sidebar.multiselect(
     "Segment", list(gpw_indices.ALL_SEGMENTS),
-    default=["WIG20", "mWIG40", "sWIG80"],
+    default=_seg_default,
     help="Nasdaq-AI = kuratorowany podzbior spolek AI. S&P500 i WIG-pozostale "
-         "dociagane sa leniwie (pierwsze zaladowanie potrwa kilka minut).",
+         "dociagane sa leniwie (pierwsze zaladowanie potrwa kilka minut). "
+         "Wybor jest zapamietywany.",
 )
+if segments != _saved_seg:
+    settings["segments"] = segments
+    save_wl()
 min_cov = st.sidebar.slider("Min. pokrycie danych (%)", 0, 100, 40, step=10)
 
 if st.sidebar.button("🔄 Odswiez dane z Yahoo (wolne)"):
@@ -213,7 +224,6 @@ if st.sidebar.button("🔄 Odswiez dane z Yahoo (wolne)"):
 
 st.sidebar.divider()
 st.sidebar.subheader("📋 Listy obserwacyjne")
-wl = get_wl()
 wl_names = list(wl["lists"].keys())
 wl_filter = st.sidebar.selectbox("Pokaz spolki", ["Wszystkie"] + wl_names)
 
@@ -347,24 +357,52 @@ view["signal"] = view["combined"].map(
     lambda s: f"{fisher_score.action_verdict(s)['emoji']} "
               f"{fisher_score.action_verdict(s)['label']}")
 
-table = view[["ticker", "name", "segment", "price", "target_mean",
-              "target_upside_pct", "analyst_count", "rec_label",
-              "next_earnings_date", "rev_growth_pct", "eps_growth_pct",
-              "last_q_date", "last_q_revenue", "last_q_eps", "eps_surprise_pct",
-              "ex_dividend_date", "dividend_pay_date", "last_dividend_value",
-              "trailing_pe", "market_cap", "combined", "signal",
-              "coverage"]].rename(columns={
-    "ticker": "Symbol", "name": "Spolka", "segment": "Segment", "price": "Cena",
-    "target_mean": "Cena docelowa", "target_upside_pct": "Do celu %",
-    "analyst_count": "Rekom.", "rec_label": "Ocena analitykow",
-    "next_earnings_date": "Wyniki (data)", "rev_growth_pct": "Przych. r/r (est.)",
-    "eps_growth_pct": "Zysk r/r (est.)",
-    "last_q_date": "Ost. kwartal", "last_q_revenue": "Ost. przychody",
-    "last_q_eps": "Ost. EPS", "eps_surprise_pct": "EPS vs konsensus",
-    "ex_dividend_date": "Dyw. ex-date", "dividend_pay_date": "Dyw. wyplata",
-    "last_dividend_value": "Dyw./akcje",
-    "trailing_pe": "C/Z", "market_cap": "Kap. rynk.",
-    "combined": "Wynik", "signal": "Sygnal", "coverage": "Pokrycie %"})
+# etykieta kolumny -> kolumna zrodlowa (kanoniczna kolejnosc)
+COLS = {
+    "Symbol": "ticker", "Spolka": "name", "Segment": "segment", "Cena": "price",
+    "Cena docelowa": "target_mean", "Do celu %": "target_upside_pct",
+    "Rekom.": "analyst_count", "Ocena analitykow": "rec_label",
+    "Wyniki (data)": "next_earnings_date",
+    "Przych. r/r (est.)": "rev_growth_pct", "Zysk r/r (est.)": "eps_growth_pct",
+    "Ost. kwartal": "last_q_date", "Ost. przychody": "last_q_revenue",
+    "Ost. EPS": "last_q_eps", "EPS vs konsensus": "eps_surprise_pct",
+    "Dyw. ex-date": "ex_dividend_date", "Dyw. wyplata": "dividend_pay_date",
+    "Dyw./akcje": "last_dividend_value",
+    "C/Z": "trailing_pe", "Kap. rynk.": "market_cap",
+    "Wynik": "combined", "Sygnal": "signal", "Pokrycie %": "coverage",
+}
+
+# --- ustawienia tabeli: wybor/kolejnosc kolumn (trwale) + grupa dla +/- ---
+with st.expander("⚙️ Ustawienia tabeli (kolumny · grupa dla ±)"):
+    _saved_cols = settings.get("ranking_columns")
+    sel_cols = st.multiselect(
+        "Kolumny (kolejność wyboru = kolejność w tabeli; zapamiętywane)",
+        list(COLS), default=[c for c in (_saved_cols or list(COLS)) if c in COLS],
+        key="rank_cols")
+    if not sel_cols:
+        sel_cols = list(COLS)
+    if "Symbol" not in sel_cols:
+        sel_cols = ["Symbol"] + sel_cols
+    if sel_cols != _saved_cols:
+        settings["ranking_columns"] = sel_cols
+        save_wl()
+    group = None
+    if wl_names:
+        group = st.selectbox(
+            "Grupa dla kolumny ± (zaznacz pole w tabeli, by dodać/usunąć spółkę)",
+            wl_names, key="rank_group")
+    else:
+        st.caption("Utwórz listę w panelu bocznym, by włączyć kolumnę ± "
+                   "(dodawanie/usuwanie spółek z grupy).")
+
+table = view[[COLS[c] for c in sel_cols]].rename(
+    columns={src: lbl for lbl, src in COLS.items()})
+
+# kolumna ±: przynaleznosc do wybranej grupy (obok Spolki)
+if group is not None:
+    _pos = table.columns.get_loc("Spolka") + 1 if "Spolka" in table.columns else 1
+    _members = set(wl["lists"].get(group, []))
+    table.insert(_pos, "± Grupa", [t in _members for t in view["ticker"]])
 
 
 def _upside_color(v):
@@ -374,13 +412,22 @@ def _upside_color(v):
 
 
 styled = table.style.map(
-    _upside_color, subset=["Do celu %", "Przych. r/r (est.)", "Zysk r/r (est.)",
-                           "EPS vs konsensus"])
+    _upside_color, subset=[c for c in ("Do celu %", "Przych. r/r (est.)",
+                                       "Zysk r/r (est.)", "EPS vs konsensus")
+                           if c in table.columns])
 
-st.dataframe(
+# wysokosc = wszystkie wiersze bez wewnetrznego przewijania
+_tbl_height = 38 + 35 * len(table)
+
+edited = st.data_editor(
     styled,
-    width="stretch", hide_index=True,
+    width="stretch", hide_index=True, height=_tbl_height,
+    disabled=[c for c in table.columns if c != "± Grupa"],
+    key=f"rankedit_{group}_{len(wl['lists'].get(group, [])) if group else 0}",
     column_config={
+        "± Grupa": st.column_config.CheckboxColumn(
+            "± Grupa", help="Zaznacz, by dodać spółkę do wybranej grupy; "
+                            "odznacz, by ją usunąć."),
         "Cena": st.column_config.NumberColumn(format="%.2f"),
         "Cena docelowa": st.column_config.NumberColumn(format="%.2f"),
         "Do celu %": st.column_config.NumberColumn(format="%+.1f%%"),
@@ -426,6 +473,21 @@ st.dataframe(
         "Pokrycie %": st.column_config.NumberColumn(format="%d%%"),
     },
 )
+
+# zastosuj zmiany z kolumny ±: roznica zaznaczen -> dodaj/usun w grupie
+if group is not None and edited is not None and "± Grupa" in edited.columns:
+    _new = set(edited.loc[edited["± Grupa"] == True, "Symbol"])  # noqa: E712
+    _old = {t for t in table["Symbol"] if t in _members}
+    if _new != _old:
+        lst = wl["lists"].setdefault(group, [])
+        for t in table["Symbol"]:
+            if t in _new and t not in lst:
+                lst.append(t)
+            elif t not in _new and t in lst:
+                lst.remove(t)
+        save_wl()
+        st.rerun()
+
 st.caption("Cena, cena docelowa, przychody i dywidenda w walucie notowan "
            "(Nasdaq: USD, GPW: PLN). "
            "Rekom. = liczba analitykow; ocena 1=Strong Buy ... 5=Sell. "
