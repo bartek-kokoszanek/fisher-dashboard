@@ -31,7 +31,8 @@ from gpw_tickers import GPW_TICKERS
 try:
     _bridge = ["GEMINI_API_KEY", "GEMINI_API_KEYS", "LLM_API_KEY", "LLM_BASE_URL",
                "LLM_MODEL", "LLM_MODELS", "DEEP_MODEL", "STT_MODEL",
-               "GITHUB_TOKEN", "GIST_ID", "YT_PROXY", "ALPHAVANTAGE_API_KEY"]
+               "GITHUB_TOKEN", "GIST_ID", "YT_PROXY", "ALPHAVANTAGE_API_KEY",
+               "YOUTUBE_API_KEY"]
     _bridge += [f"GEMINI_API_KEY_{i}" for i in range(2, 6)]
     for _k in _bridge:
         if _k in st.secrets and not os.environ.get(_k):
@@ -81,7 +82,7 @@ def build_row(raw: dict, guru_key: str) -> dict:
 
 
 @st.cache_data(show_spinner=False, ttl=24 * 3600)
-def load_raws(force: bool, _v: int = 3):
+def load_raws(force: bool, _v: int = 4):
     """Surowe dane bazowego uniwersum (cache Streamlita + cache plikowy 24h).
 
     ttl + _v: bez ttl wpisy w pamieci zyly wiecznie (deploy na Streamlit
@@ -322,12 +323,14 @@ view = df.sort_values("combined", ascending=False, na_position="last").copy()
 for col in ("price", "target_mean", "target_upside", "analyst_count",
             "recommendation_mean", "recommendation_key", "trailing_pe", "market_cap",
             "next_earnings_date", "rev_growth_est", "eps_growth_est",
-            "ex_dividend_date", "dividend_pay_date", "last_dividend_value"):
+            "ex_dividend_date", "dividend_pay_date", "last_dividend_value",
+            "last_q_date", "last_q_revenue", "last_q_eps", "eps_surprise"):
     if col not in view.columns:
         view[col] = None
 view["target_upside_pct"] = view["target_upside"].astype(float) * 100
 view["rev_growth_pct"] = view["rev_growth_est"].astype(float) * 100
 view["eps_growth_pct"] = view["eps_growth_est"].astype(float) * 100
+view["eps_surprise_pct"] = view["eps_surprise"].astype(float) * 100
 
 
 def _rec_label(r):
@@ -347,6 +350,7 @@ view["signal"] = view["combined"].map(
 table = view[["ticker", "name", "segment", "price", "target_mean",
               "target_upside_pct", "analyst_count", "rec_label",
               "next_earnings_date", "rev_growth_pct", "eps_growth_pct",
+              "last_q_date", "last_q_revenue", "last_q_eps", "eps_surprise_pct",
               "ex_dividend_date", "dividend_pay_date", "last_dividend_value",
               "trailing_pe", "market_cap", "combined", "signal",
               "coverage"]].rename(columns={
@@ -355,6 +359,8 @@ table = view[["ticker", "name", "segment", "price", "target_mean",
     "analyst_count": "Rekom.", "rec_label": "Ocena analitykow",
     "next_earnings_date": "Wyniki (data)", "rev_growth_pct": "Przych. r/r (est.)",
     "eps_growth_pct": "Zysk r/r (est.)",
+    "last_q_date": "Ost. kwartal", "last_q_revenue": "Ost. przychody",
+    "last_q_eps": "Ost. EPS", "eps_surprise_pct": "EPS vs konsensus",
     "ex_dividend_date": "Dyw. ex-date", "dividend_pay_date": "Dyw. wyplata",
     "last_dividend_value": "Dyw./akcje",
     "trailing_pe": "C/Z", "market_cap": "Kap. rynk.",
@@ -368,7 +374,8 @@ def _upside_color(v):
 
 
 styled = table.style.map(
-    _upside_color, subset=["Do celu %", "Przych. r/r (est.)", "Zysk r/r (est.)"])
+    _upside_color, subset=["Do celu %", "Przych. r/r (est.)", "Zysk r/r (est.)",
+                           "EPS vs konsensus"])
 
 st.dataframe(
     styled,
@@ -388,30 +395,49 @@ st.dataframe(
             format="%+.1f%%",
             help="Konsensus analitykow: oczekiwany wzrost zysku (EPS) r/r "
                  "na najblizszy raportowany kwartal"),
+        "Ost. kwartal": st.column_config.TextColumn(
+            help="Koniec ostatniego OPUBLIKOWANEGO kwartalu"),
+        "Ost. przychody": st.column_config.NumberColumn(
+            format="compact",
+            help="Przychody z ostatnio opublikowanych wynikow kwartalnych"),
+        "Ost. EPS": st.column_config.NumberColumn(
+            format="%.2f",
+            help="Zysk na akcje (EPS) z ostatnio opublikowanych wynikow "
+                 "kwartalnych"),
+        "EPS vs konsensus": st.column_config.NumberColumn(
+            format="%+.1f%%",
+            help="O ile opublikowany EPS pobil (+) lub zawiodl (-) konsensus "
+                 "analitykow. Wstecznego konsensusu PRZYCHODOW Yahoo nie "
+                 "udostepnia, wiec pokazujemy tylko EPS."),
         "Dyw. ex-date": st.column_config.TextColumn(
-            help="Dzien odciecia prawa do dywidendy (ex-dividend) - "
-                 "najblizszy zadeklarowany albo ostatni miniony"),
+            help="Dzien odciecia prawa do dywidendy (ex-dividend) z biezacego "
+                 "roku - najblizszy zadeklarowany albo juz miniony; gdy w tym "
+                 "roku brak, ostatni z ubieglego roku"),
         "Dyw. wyplata": st.column_config.TextColumn(
-            help="Dzien wyplaty dywidendy (dla czesci spolek GPW "
-                 "Yahoo nie podaje)"),
+            help="Dzien wyplaty dywidendy. Zna go tylko kalendarz Yahoo - "
+                 "dla wiekszosci spolek GPW nie jest publikowany (puste pole)"),
         "Dyw./akcje": st.column_config.NumberColumn(
             format="%.2f",
-            help="Kwota ostatniej dywidendy na akcje (w walucie notowan)"),
+            help="Kwota dywidendy na akcje (w walucie notowan) - z biezacego "
+                 "roku, a gdy brak, z ubieglego"),
         "C/Z": st.column_config.NumberColumn(format="%.1f"),
         "Kap. rynk.": st.column_config.NumberColumn(format="compact"),
         "Wynik": st.column_config.ProgressColumn("Wynik", min_value=0, max_value=100, format="%.1f"),
         "Pokrycie %": st.column_config.NumberColumn(format="%d%%"),
     },
 )
-st.caption("Cena, cena docelowa i dywidenda w walucie notowan (Nasdaq: USD, GPW: PLN). "
+st.caption("Cena, cena docelowa, przychody i dywidenda w walucie notowan "
+           "(Nasdaq: USD, GPW: PLN). "
            "Rekom. = liczba analitykow; ocena 1=Strong Buy ... 5=Sell. "
-           "Wyniki (data) = najblizsze sprawozdanie kwartalne. "
+           "Wyniki (data) = najblizsza PRZYSZLA planowana publikacja wynikow "
+           "kwartalnych (puste = spolka nie ogosila terminu). "
            "Przych./Zysk r/r (est.) = konsensus analitykow na najblizszy kwartal "
            "wzgledem tego samego kwartalu rok wczesniej (zielone = wzrost, "
            "czerwone = spadek). "
-           "Dyw. ex-date / wyplata / na akcje = kalendarz dywidendy i kwota "
-           "ostatniej dywidendy (Yahoo; daty moga byc minione, jesli spolka "
-           "nie zadeklarowala kolejnej). "
+           "Ost. kwartal/przychody/EPS = ostatnio OPUBLIKOWANE wyniki; "
+           "EPS vs konsensus = o ile pobito oczekiwania analitykow. "
+           "Dywidenda: dane z biezacego roku, a gdy brak - z ubieglego; "
+           "dnia wyplaty dla wiekszosci spolek GPW Yahoo nie publikuje. "
            "Sygnal = decyzja wg wybranej strategii (Kupuj/Akumuluj/Trzymaj/Sprzedaj) "
            "na podstawie Wyniku. Dla czesci spolek GPW konsensus analitykow niedostepny.")
 
@@ -597,7 +623,7 @@ if choices:
 
     # ---------------- Financial Charts ----------------
     st.divider()
-    financial_charts.render(pick, row)
+    financial_charts.render(pick, row, notes=wl.get("notes", {}).get(pick))
 
     # ---------------- Deep research ----------------
     st.divider()
@@ -655,37 +681,44 @@ if choices:
     else:
         st.caption("Brak deep researchu dla tej spolki. Uruchom przyciskiem powyzej.")
 
-    # ---------------- Transkrypcja i analiza wideo (AI) ----------------
+    # ---------------- Analiza wideo (AI agent oglada film) ----------------
     st.divider()
-    st.subheader("🎧 Transkrypcja i analiza wideo (AI)")
-    st.caption("Agent bierze transkrypt filmu z YouTube (najpierw napisy; gdy ich brak "
-               "— transkrybuje dzwiek przez Gemini) i wyciaga wnioski o spolce.")
-    if not os.environ.get("YT_PROXY"):
-        st.caption("ℹ️ Na Streamlit Cloud YouTube czesto blokuje IP serwera (403). "
-                   "Ta funkcja dziala pewnie **lokalnie** (streamlit run app.py) albo "
-                   "po ustawieniu **YT_PROXY** (residential proxy) w Secrets.")
+    st.subheader("🎧 Analiza wideo (AI)")
+    st.caption("Agent najpierw próbuje napisów; gdy ich brak, wysyła film do "
+               "Gemini, który **ogląda/odsłuchuje go po stronie Google** "
+               "(działa też z chmury — nasz serwer nie pobiera nic z YouTube).")
+    _vn = yt_transcribe.videos_note()
+    if _vn:
+        st.caption(f"ℹ️ {_vn}")
     if not yt_transcribe.available():
         st.caption("Wymaga GEMINI_API_KEY.")
     else:
         vids = yt_videos(pick, row.get("name", pick), row.get("market", ""))
         if not vids:
-            st.caption("Nie znaleziono filmow (YouTube moze blokowac wyszukiwanie z serwera).")
+            st.caption("Nie znaleziono filmów o spółce z ostatnich 12 miesięcy"
+                       + ("" if not _vn else
+                          " — bez YOUTUBE_API_KEY wyszukiwanie z serwera "
+                          "zwykle nie działa."))
         else:
-            allow_audio = st.checkbox(
-                "Transkrybuj dzwiek, gdy film nie ma napisow (wolniejsze)",
-                value=True, key=f"ytt_aud_{pick}")
-            labels = {v["id"]: f"{v.get('date', '')} · {str(v.get('title', ''))[:65]} "
-                              f"— {v.get('channel', '')}" for v in vids}
-            vid = st.selectbox("Film", [v["id"] for v in vids],
+            def _vid_label(v):
+                mins = f" · {v['minutes']:.0f} min" if v.get("minutes") else ""
+                views = (f" · {v['views']:,} wyśw.".replace(",", " ")
+                         if v.get("views") else "")
+                return (f"{v.get('date', '')} · {str(v.get('title', ''))[:60]} "
+                        f"— {v.get('channel', '')}{mins}{views}")
+            labels = {v["id"]: _vid_label(v) for v in vids}
+            vid = st.selectbox(f"Film ({len(vids)} znalezionych, 12 mies.)",
+                               [v["id"] for v in vids],
                                format_func=lambda i: labels.get(i, i),
                                key=f"ytt_sel_{pick}")
             video = next(v for v in vids if v["id"] == vid)
             res = yt_transcribe.load_cached(vid)
-            if st.button("🎧 Transkrybuj i analizuj", key=f"ytt_btn_{pick}"):
-                with st.spinner("Pobieram transkrypt i analizuje..."):
+            if st.button("🎧 Przeanalizuj film", key=f"ytt_btn_{pick}"):
+                with st.spinner("Analizuję film (napisy albo odsłuch przez "
+                                "Gemini — do ~2 min)..."):
                     try:
-                        res = yt_transcribe.run(video, row.get("name", pick), pick,
-                                                allow_audio=allow_audio, force=True)
+                        res = yt_transcribe.run(video, row.get("name", pick),
+                                                pick, force=True)
                     except Exception as e:
                         st.error(f"Nie udalo sie: {e}")
             if res:
