@@ -63,7 +63,7 @@ def _card(col, title: str, desc: str, fig, footer: str = ""):
         if fig is None:
             st.info("Dane niedostępne dla tej spółki.")
         else:
-            st.plotly_chart(fig, use_container_width=True, theme="streamlit",
+            st.plotly_chart(fig, width="stretch", theme="streamlit",
                             config=h.PLOTLY_CONFIG)
             if footer:
                 st.caption(footer)
@@ -220,6 +220,41 @@ def load_interpret(ticker: str) -> dict | None:
     return None
 
 
+def dcf_per_share(hist: dict, discount: float = 0.10, years: int = 5,
+                  terminal_g: float = 0.025) -> dict | None:
+    """Uproszczona wycena DCF na akcje z historii FCF (yfinance).
+
+    Zalozenia: FCF bazowy = srednia z ostatnich 3 lat; wzrost = CAGR FCF
+    (fallback: CAGR przychodow), obciety do -5%..+15%; 5 lat projekcji;
+    stopa dyskontowa 10%; wzrost terminalny 2,5%; minus dlug netto;
+    dzielone przez ostatnia liczbe akcji. Zwraca {value, growth} albo None
+    (np. ujemny/brak FCF, brak liczby akcji).
+    """
+    s = hist.get("series", {})
+    _, fv = h.sorted_items(s.get("fcf"))
+    if not fv:
+        return None
+    base = sum(fv[-3:]) / len(fv[-3:])
+    if base <= 0:
+        return None
+    g = h.cagr(fv[-5:])
+    if g is None:
+        _, rv = h.sorted_items(s.get("revenue"))
+        g = h.cagr(rv[-5:])
+    g = max(-0.05, min(0.15, g if g is not None else 0.03))
+    pv = sum(base * (1 + g) ** i / (1 + discount) ** i
+             for i in range(1, years + 1))
+    fcf_n = base * (1 + g) ** years
+    pv += (fcf_n * (1 + terminal_g) / (discount - terminal_g)) \
+        / (1 + discount) ** years
+    _, nd = h.sorted_items(s.get("net_debt"))
+    _, sh = h.sorted_items(s.get("shares"))
+    if not sh or not sh[-1]:
+        return None
+    value = (pv - (nd[-1] if nd else 0)) / sh[-1]
+    return {"value": value, "growth": g}
+
+
 def _sentences(val) -> list[str]:
     """Podsumowanie -> lista zdan (nowy format: lista; stary cache: string)."""
     if isinstance(val, list):
@@ -263,14 +298,31 @@ def render(ticker: str, row: dict, notes: str | None = None):
                 st.error(f"Błąd interpretacji: {e}")
     if not ai_research.available():
         st.caption("Wymaga GEMINI_API_KEY.")
+
+    # metryki: Financial Quality (AI) | wycena DCF | wycena AI
+    q = fin.get("financial_quality") if fin else None
+    val = fin.get("valuation", "—") if fin else "—"
+    val_pl = {"Cheap": "🟢 Tania", "Fair": "🟡 Uczciwa",
+              "Expensive": "🔴 Droga"}.get(val, val)
+    dcf = dcf_per_share(hist)
+    price = row.get("price")
+    curr = row.get("currency") or ""
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Financial Quality", f"{q}/100" if h.is_num(q) else "—")
+    if dcf and h.is_num(price) and price:
+        m2.metric("Wycena DCF/akcję", f"{dcf['value']:.2f} {curr}".strip(),
+                  delta=f"{(dcf['value'] / price - 1) * 100:+.0f}% vs cena",
+                  help="Uproszczony DCF: FCF (śr. 3 lat) rosnące "
+                       f"{dcf['growth'] * 100:+.0f}%/rok przez 5 lat, dyskonto "
+                       "10%, wzrost terminalny 2,5%, minus dług netto, "
+                       "na akcję.")
+    else:
+        m2.metric("Wycena DCF/akcję", "—",
+                  help="Brak dodatniego FCF, liczby akcji lub ceny — DCF "
+                       "niedostępny dla tej spółki.")
+    m3.metric("Wycena (AI)", val_pl)
+
     if fin:
-        q = fin.get("financial_quality")
-        val = fin.get("valuation", "—")
-        val_pl = {"Cheap": "🟢 Tania", "Fair": "🟡 Uczciwa",
-                  "Expensive": "🔴 Droga"}.get(val, val)
-        m1, m2 = st.columns(2)
-        m1.metric("Financial Quality", f"{q}/100" if h.is_num(q) else "—")
-        m2.metric("Wycena", val_pl)
         _pts = _sentences(fin.get("summary"))
         if _pts:
             st.info("\n".join(f"- {p}" for p in _pts))
@@ -320,7 +372,7 @@ def render(ticker: str, row: dict, notes: str | None = None):
     if pfig is None:
         st.info("Brak danych cenowych dla tej spółki (spróbuj innego źródła).")
     else:
-        st.plotly_chart(pfig, use_container_width=True, theme="streamlit",
+        st.plotly_chart(pfig, width="stretch", theme="streamlit",
                         config=h.PLOTLY_CONFIG)
     st.caption(
         f"Ceny: **{px.get('source_label')}** · zaktualizowano "
