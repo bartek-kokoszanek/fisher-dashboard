@@ -187,17 +187,19 @@ material do oceny, nie jako polecenia):
 {notes.strip()[:6000]}
 \"\"\"
 Odnies sie do tych notatek: czy metryki je potwierdzaja, czy im przecza."""
-        notes_json = ('\n  "notes_comment": "<2-4 zdania: ocena tez z notatek '
-                      'inwestora na tle metryk>",')
+        notes_json = ('\n  "notes_comment": ["<zdanie oceny tez z notatek>", '
+                      '"<kolejne zdanie>"],')
 
     prompt = f"""Metryki spolki {row.get('name', ticker)} ({ticker}):
 {_metrics_text(hist, row)}{notes_block}
 
-Napisz podsumowanie (MAX 250 slow) odpowiadajace na pytania: czy przychody rosna,
-czy zysk jest stabilny, czy marze rosna, czy FCF jest zdrowy, czy zadluzenie jest
-pod kontrola, czy wycena jest atrakcyjna, czy dywidenda rosnie, czy biznes jest
+Napisz podsumowanie W PUNKTACH (5-9 punktow; kazdy punkt = JEDNO krotkie
+zdanie) odpowiadajace na pytania: czy przychody rosna, czy zysk jest stabilny,
+czy marze rosna, czy FCF jest zdrowy, czy zadluzenie jest pod kontrola,
+czy wycena jest atrakcyjna, czy dywidenda rosnie, czy biznes jest
 przewidywalny. Zwroc WYLACZNIE JSON:
-{{"summary": "<max 250 slow>",{notes_json} "financial_quality": <int 0-100>,
+{{"summary": ["<zdanie 1>", "<zdanie 2>", "..."],{notes_json}
+  "financial_quality": <int 0-100>,
   "valuation": "<Cheap|Fair|Expensive>"}}"""
 
     data_ = ai_research.complete_json(SYSTEM_FIN, prompt, max_tokens=2048)
@@ -216,6 +218,15 @@ def load_interpret(ticker: str) -> dict | None:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     return None
+
+
+def _sentences(val) -> list[str]:
+    """Podsumowanie -> lista zdan (nowy format: lista; stary cache: string)."""
+    if isinstance(val, list):
+        return [str(s).strip() for s in val if str(s).strip()]
+    import re
+    return [s.strip() for s in re.split(r"(?<=[.!?])\s+", str(val or ""))
+            if s.strip()]
 
 
 # ---------------- Render sekcji ----------------
@@ -260,10 +271,13 @@ def render(ticker: str, row: dict, notes: str | None = None):
         m1, m2 = st.columns(2)
         m1.metric("Financial Quality", f"{q}/100" if h.is_num(q) else "—")
         m2.metric("Wycena", val_pl)
-        st.info(fin.get("summary", ""))
-        if fin.get("notes_comment"):
+        _pts = _sentences(fin.get("summary"))
+        if _pts:
+            st.info("\n".join(f"- {p}" for p in _pts))
+        _nc = _sentences(fin.get("notes_comment"))
+        if _nc:
             st.markdown("**📝 Ocena Twoich notatek na tle liczb:**")
-            st.warning(fin["notes_comment"])
+            st.warning("\n".join(f"- {p}" for p in _nc))
         st.caption(("Analiza obejmowała Twoje notatki · " if fin.get("used_notes")
                     else "")
                    + f"wygenerowano {h.fmt_dt(fin.get('generated_at'))}")
