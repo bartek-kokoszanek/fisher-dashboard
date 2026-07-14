@@ -397,13 +397,19 @@ nie wyplacala/nie ustalila dywidendy — z roku poprzedniego ({prev}).
 Szukaj w wiarygodnych zrodlach: komunikaty spolki (ESPI/relacje inwestorskie),
 gpw.pl, serwisy gieldowe (np. Bankier, Stooq, StockWatch, Strefa Inwestorow).
 
+UWAGA na trzy ROZNE daty (nie myl ich):
+- ex_date = pierwszy dzien notowan BEZ prawa do dywidendy (kupujacy w tym dniu
+  juz dywidendy NIE dostanie); zwykle 1 dzien roboczy PRZED dniem dywidendy,
+- record_date = "dzien dywidendy" / dzien ustalenia prawa do dywidendy,
+- pay_date = dzien wyplaty srodkow na rachunek.
+
 Zwroc WYLACZNIE poprawny JSON (bez tekstu przed/po). Pola, ktorych NIE udalo Ci sie
 potwierdzic w zrodlach, ustaw na null — NIE zgaduj:
 {{
   "amount": <kwota dywidendy na 1 akcje, liczba, lub null>,
   "currency": "<PLN/USD lub null>",
-  "ex_date": "<YYYY-MM-DD: dzien odciecia prawa do dywidendy / ostatni dzien
-               z prawem — dzien ustalenia prawa, lub null>",
+  "ex_date": "<YYYY-MM-DD: pierwszy dzien BEZ prawa do dywidendy, lub null>",
+  "record_date": "<YYYY-MM-DD: dzien dywidendy / ustalenia prawa, lub null>",
   "pay_date": "<YYYY-MM-DD: dzien wyplaty dywidendy na rachunek, lub null>",
   "year": <rok, ktorego dotyczy wyplata>,
   "note": "<1-2 zdania po polsku: czego dotyczy wyplata i co ustalono>",
