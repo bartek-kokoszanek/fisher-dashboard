@@ -286,10 +286,23 @@ def _render_dividend(ticker: str, row: dict, hist: dict):
     Yahoo nie publikuje dnia WYPLATY dla wiekszosci spolek GPW — wtedy
     oferujemy dociagniecie go przez AI z wyszukiwarka (ze zrodlami).
     """
+    # UWAGA: row pochodzi z DataFrame -> brakujace daty sa jako NaN, a nie None.
+    # NaN jest w Pythonie PRAWDZIWY logicznie (bool(nan) == True), wiec bez
+    # tego czyszczenia w UI pojawialo sie "nan", a przycisk AI sie nie pokazywal.
+    def _clean(v):
+        if v is None:
+            return None
+        try:
+            if pd.isna(v):
+                return None
+        except (TypeError, ValueError):
+            pass
+        return str(v).strip() or None
+
     events = hist.get("dividend_events") or []
     amount = row.get("last_dividend_value")
-    ex_date = row.get("ex_dividend_date")
-    pay_date = row.get("dividend_pay_date")
+    ex_date = _clean(row.get("ex_dividend_date"))
+    pay_date = _clean(row.get("dividend_pay_date"))
     curr = row.get("currency") or ""
     if not (events or amount):
         st.markdown("**💰 Dywidenda**")
