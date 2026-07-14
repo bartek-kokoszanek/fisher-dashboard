@@ -356,12 +356,19 @@ def _render_dividend(ticker: str, row: dict, hist: dict):
                            "(typowe dla GPW) — AI poszuka go w komunikatach "
                            "spółki i serwisach giełdowych, z podaniem źródeł.")
     if div_ai:
-        a1, a2, a3 = st.columns(3)
+        a1, a2, a3, a4 = st.columns(4)
         a1.metric("Dywidenda (AI)",
                   f"{div_ai.get('amount')} {div_ai.get('currency') or ''}".strip()
                   if div_ai.get("amount") is not None else "nie ustalono")
-        a2.metric("Dzień odcięcia (AI)", div_ai.get("ex_date") or "nie ustalono")
-        a3.metric("Dzień wypłaty (AI)", div_ai.get("pay_date") or "nie ustalono")
+        a2.metric("Dzień odcięcia (AI)", div_ai.get("ex_date") or "nie ustalono",
+                  help="Pierwszy dzień notowań BEZ prawa do dywidendy.")
+        a3.metric("Dzień ustalenia prawa (AI)",
+                  div_ai.get("record_date") or "nie ustalono",
+                  help="„Dzień dywidendy” — kto ma akcje na koniec tego dnia, "
+                       "dostanie wypłatę. Zwykle 1 dzień roboczy PO dniu "
+                       "odcięcia, więc różnica tych dat to norma, nie błąd.")
+        a4.metric("Dzień wypłaty (AI)", div_ai.get("pay_date") or "nie ustalono",
+                  help="Dzień, w którym pieniądze trafiają na rachunek.")
         if div_ai.get("note"):
             st.info(div_ai["note"])
         if div_ai.get("sources"):
