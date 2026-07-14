@@ -9,10 +9,12 @@ from __future__ import annotations
 import json
 import os
 
+import pandas as pd
 import streamlit as st
 
 import ai_research
 import config
+import research_deep
 from charts import (cashflow_chart, data, debt_chart, dividend_chart, eps_chart,
                     helpers as h, margin_chart, pe_chart, price_chart,
                     revenue_chart, roe_chart)
@@ -168,6 +170,12 @@ SYSTEM_FIN = (
 )
 
 
+def _notes_hash(notes: str | None) -> str:
+    """Odcisk notatek — pozwala wykryc, ze analiza AI jest starsza niz notatki."""
+    import hashlib
+    return hashlib.sha1((notes or "").strip().encode("utf-8")).hexdigest()[:12]
+
+
 def interpret(ticker: str, hist: dict, row: dict, notes: str | None = None,
               force: bool = False) -> dict:
     path = _fin_ai_path(ticker)
@@ -205,6 +213,7 @@ przewidywalny. Zwroc WYLACZNIE JSON:
     data_ = ai_research.complete_json(SYSTEM_FIN, prompt, max_tokens=2048)
     data_["ticker"] = ticker
     data_["used_notes"] = bool(notes and notes.strip())
+    data_["notes_hash"] = _notes_hash(notes)
     from datetime import datetime, timezone
     data_["generated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     with open(path, "w", encoding="utf-8") as f:
@@ -271,6 +280,98 @@ def _prices(ticker: str, source: str) -> dict:
     return data.get_prices(ticker, source)
 
 
+def _render_dividend(ticker: str, row: dict, hist: dict):
+    """Blok 'Dywidenda': ostatnia kwota, dzien odciecia, dzien wyplaty.
+
+    Yahoo nie publikuje dnia WYPLATY dla wiekszosci spolek GPW — wtedy
+    oferujemy dociagniecie go przez AI z wyszukiwarka (ze zrodlami).
+    """
+    events = hist.get("dividend_events") or []
+    amount = row.get("last_dividend_value")
+    ex_date = row.get("ex_dividend_date")
+    pay_date = row.get("dividend_pay_date")
+    curr = row.get("currency") or ""
+    if not (events or amount):
+        st.markdown("**💰 Dywidenda**")
+        st.info("Spółka nie wypłacała dywidendy (brak wypłat w danych Yahoo).")
+        st.divider()
+        return
+
+    if amount is None and events:
+        amount = events[0]["amount"]
+        ex_date = ex_date or events[0]["ex_date"]
+
+    price = row.get("price")
+    dy = (amount / price) if (h.is_num(amount) and h.is_num(price) and price) else None
+
+    st.markdown("**💰 Dywidenda**")
+    d1, d2, d3, d4 = st.columns(4)
+    d1.metric("Ostatnia dywidenda / akcję",
+              f"{amount:.2f} {curr}".strip() if h.is_num(amount) else "—",
+              help="Kwota ostatniej wypłaty na jedną akcję (bieżący rok, "
+                   "a gdy brak — ubiegły).")
+    d2.metric("Dzień odcięcia (ex-date)", ex_date or "—",
+              help="Od tego dnia akcje są notowane bez prawa do dywidendy "
+                   "(kupując w tym dniu, dywidendy już nie dostaniesz).")
+    d3.metric("Dzień wypłaty", pay_date or "—",
+              help="Dzień, w którym dywidenda trafia na rachunek. Yahoo podaje "
+                   "go dla spółek USA; dla większości GPW nie — użyj przycisku "
+                   "poniżej, by wyszukać go przez AI.")
+    d4.metric("Stopa dywidendy", h.pct(dy) if dy else "—",
+              help="Ostatnia dywidenda / bieżąca cena akcji.")
+
+    # dzien wyplaty z AI (grounding) — gdy Yahoo go nie zna
+    div_ai = research_deep.load_dividend_details(ticker)
+    if not pay_date:
+        cap = st.columns([2, 3])
+        with cap[0]:
+            if st.button("🔎 Znajdź dzień wypłaty (AI + wyszukiwarka)",
+                         key=f"divai_{ticker}",
+                         disabled=not research_deep.available()):
+                with st.spinner("Szukam komunikatów spółki o dywidendzie..."):
+                    try:
+                        div_ai = research_deep.dividend_details(
+                            ticker, row.get("name", ticker),
+                            row.get("market", ""), force=True)
+                    except Exception as e:
+                        st.error(f"Nie udało się: {e}")
+        with cap[1]:
+            if not research_deep.available():
+                st.caption("Wymaga GEMINI_API_KEY.")
+            else:
+                st.caption("Yahoo nie publikuje dnia wypłaty dla tej spółki "
+                           "(typowe dla GPW) — AI poszuka go w komunikatach "
+                           "spółki i serwisach giełdowych, z podaniem źródeł.")
+    if div_ai:
+        a1, a2, a3 = st.columns(3)
+        a1.metric("Dywidenda (AI)",
+                  f"{div_ai.get('amount')} {div_ai.get('currency') or ''}".strip()
+                  if div_ai.get("amount") is not None else "nie ustalono")
+        a2.metric("Dzień odcięcia (AI)", div_ai.get("ex_date") or "nie ustalono")
+        a3.metric("Dzień wypłaty (AI)", div_ai.get("pay_date") or "nie ustalono")
+        if div_ai.get("note"):
+            st.info(div_ai["note"])
+        if div_ai.get("sources"):
+            with st.expander(f"🔗 Źródła AI ({len(div_ai['sources'])}) — "
+                             "zweryfikuj przed decyzją"):
+                for s in div_ai["sources"]:
+                    st.markdown(f"- [{s.get('title', s['url'])}]({s['url']})")
+        st.caption(f"⚠️ Dane wyszukane przez AI (pewność: "
+                   f"{div_ai.get('confidence', '—')}%) — mogą być niedokładne, "
+                   f"sprawdź w źródłach. Model: {div_ai.get('model')} · "
+                   f"{h.fmt_dt(div_ai.get('researched_at'))}")
+
+    if events:
+        with st.expander(f"📜 Historia wypłat ({len(events)} ostatnich)"):
+            st.dataframe(
+                pd.DataFrame([{"Dzień odcięcia": e["ex_date"],
+                               f"Dywidenda / akcję ({curr})": e["amount"]}
+                              for e in events]),
+                hide_index=True, width="stretch")
+            st.caption("Źródło: Yahoo Finance (daty = dni odcięcia prawa).")
+    st.divider()
+
+
 def render(ticker: str, row: dict, notes: str | None = None):
     st.subheader("📊 Financial Charts")
     st.caption("Wykresy finansowe z danych Yahoo Finance. ~5 lat historii + "
@@ -284,13 +385,20 @@ def render(ticker: str, row: dict, notes: str | None = None):
     # AI interpretacja (nad wykresami; uwzglednia prywatne notatki inwestora)
     st.markdown("**🤖 Automatyczna interpretacja AI**")
     _has_notes = bool(notes and notes.strip())
-    if _has_notes:
-        st.caption("Analiza uwzględni Twoje notatki z sekcji "
-                   "„📝 Moje notatki / wnioski z analiz”.")
     fin = load_interpret(ticker)
+    # analiza z cache moze byc starsza niz notatki -> wyraznie o tym mowimy
+    _stale = bool(fin) and fin.get("notes_hash") != _notes_hash(notes)
+    if _has_notes:
+        st.caption(f"📝 Twoje notatki ({len(notes.split())} słów) są częścią "
+                   "analizy — model oceni Twoje tezy na tle liczb.")
+    if _stale:
+        st.warning("Podsumowanie poniżej powstało **przed** ostatnią zmianą "
+                   "Twoich notatek — kliknij przycisk, by przeliczyć "
+                   "je z uwzględnieniem aktualnych notatek.")
     if st.button("Wygeneruj podsumowanie finansowe AI"
                  + (" (z Twoimi notatkami)" if _has_notes else ""),
-                 key=f"finai_{ticker}", disabled=not ai_research.available()):
+                 key=f"finai_{ticker}", disabled=not ai_research.available(),
+                 type="primary" if _stale else "secondary"):
         with st.spinner("Analizuję kondycję finansową..."):
             try:
                 fin = interpret(ticker, hist, row, notes=notes, force=True)
@@ -382,6 +490,8 @@ def render(ticker: str, row: dict, notes: str | None = None):
         "sprawozdań — przybliżenie. Cena docelowa = bieżący konsensus "
         "(historia celów niedostępna w darmowych danych).")
     st.divider()
+
+    _render_dividend(ticker, row, hist)
 
     # KPI kafelki
     kpis = _kpis(hist, row)

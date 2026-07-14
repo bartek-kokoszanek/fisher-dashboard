@@ -22,7 +22,7 @@ import yfinance as yf
 import config
 
 TTL_H = 24
-SCHEMA = 2  # v2: ceny tygodniowe za caly dostepny okres (Max), nie tylko 6 lat
+SCHEMA = 3  # v3: + dividend_events (pojedyncze wyplaty: data odciecia + kwota)
 
 
 def _cache_path(ticker: str) -> str:
@@ -176,12 +176,20 @@ def fetch(ticker: str) -> dict:
     roic = _ratio(nopat, invested)
 
     # dywidendy na akcje: suma wyplat w danym roku kalendarzowym
+    # + pojedyncze wyplaty (data odciecia prawa = ex-date, kwota) — do bloku
+    # "Dywidenda" w UI; Yahoo indeksuje wyplaty wlasnie po dacie ex-div.
     dps = {}
+    div_events = []
     try:
         divs = t.dividends
         if divs is not None and len(divs):
             g = divs.groupby(divs.index.year).sum()
             dps = {int(y): _num(v) for y, v in g.items() if _num(v) is not None}
+            for d, v in list(divs.items())[-16:]:
+                if _num(v) is not None:
+                    div_events.append({"ex_date": d.date().isoformat(),
+                                       "amount": _num(v)})
+            div_events.reverse()  # najnowsze pierwsze
     except Exception:
         pass
 
@@ -220,6 +228,7 @@ def fetch(ticker: str) -> dict:
         "schema": SCHEMA,
         "forecast": forecast,
         "prices": prices,
+        "dividend_events": div_events,
         "series": {
             "revenue": revenue, "net_income": net_income, "gross_profit": gross,
             "operating_income": op_income, "ebitda": ebitda, "eps": eps,

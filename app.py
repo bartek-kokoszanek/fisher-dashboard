@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 import streamlit as st
+from streamlit_sortables import sort_items
 
 import ai_research
 import config
@@ -286,20 +287,22 @@ missing_listed = [t for t in watchlists.all_listed_tickers(wl)
                   if t not in known and t not in extra_raws]
 if missing_listed:
     with st.spinner(f"Pobieram spolki z Twoich list ({len(missing_listed)})..."):
-        for t in missing_listed:
-            extra_raws[t] = data_fetch.get(t)
+        for r in data_fetch.get_many(missing_listed):
+            extra_raws[r["ticker"]] = r
 
 # leniwe dociaganie duzych segmentow (spolki spoza bazowego uniwersum)
 def _lazy_fetch(tickers, label):
     todo = [t for t in tickers if t not in known and t not in extra_raws]
     if not todo:
         return
-    st.info(f"Segment {label}: pobieram {len(todo)} spolek — "
-            "pierwszy raz moze potrwac kilka minut.")
+    st.info(f"Segment {label}: pobieram {len(todo)} spolek "
+            f"({data_fetch.WORKERS} rownolegle) — pierwszy raz potrwa "
+            "~1-3 min, potem dane sa w cache.")
     prog = st.progress(0.0)
-    for i, t in enumerate(todo):
-        extra_raws[t] = data_fetch.get(t)
-        prog.progress((i + 1) / len(todo), text=f"{t} ({i + 1}/{len(todo)})")
+    for r in data_fetch.get_many(
+            todo, progress=lambda i, n, tk: prog.progress(
+                i / n, text=f"{tk} ({i}/{n})")):
+        extra_raws[r["ticker"]] = r
     prog.empty()
 
 
@@ -374,16 +377,22 @@ COLS = {
 
 # --- ustawienia tabeli: wybor/kolejnosc kolumn (trwale) + grupa dla +/- ---
 with st.expander("⚙️ Ustawienia tabeli (kolumny · grupa dla ±)"):
-    _saved_cols = settings.get("ranking_columns")
-    sel_cols = st.multiselect(
-        "Kolumny (kolejność wyboru = kolejność w tabeli; zapamiętywane)",
-        list(COLS), default=[c for c in (_saved_cols or list(COLS)) if c in COLS],
-        key="rank_cols")
+    st.caption("🖱️ **Przeciągaj kafelki myszką**: kolejność w „Widoczne” = "
+               "kolejność kolumn w tabeli. Przeciągnij do „Ukryte”, by usunąć "
+               "kolumnę z tabeli. Układ jest zapamiętywany.")
+    _saved_cols = settings.get("ranking_columns") or list(COLS)
+    _visible = [c for c in _saved_cols if c in COLS] or list(COLS)
+    _hidden = [c for c in COLS if c not in _visible]
+    _arranged = sort_items(
+        [{"header": "Widoczne (kolejność = jak w tabeli)", "items": _visible},
+         {"header": "Ukryte", "items": _hidden}],
+        multi_containers=True, direction="horizontal", key="rank_cols_sort")
+    sel_cols = list(_arranged[0]["items"])
     if not sel_cols:
-        sel_cols = list(COLS)
+        sel_cols = ["Symbol"]
     if "Symbol" not in sel_cols:
         sel_cols = ["Symbol"] + sel_cols
-    if sel_cols != _saved_cols:
+    if sel_cols != settings.get("ranking_columns"):
         settings["ranking_columns"] = sel_cols
         save_wl()
     group = None

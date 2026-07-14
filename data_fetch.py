@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import os
-import time
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -336,18 +335,38 @@ def get(ticker: str, max_age_hours: float = 24.0, force: bool = False) -> dict:
     return raw
 
 
-def get_many(tickers, force=False, sleep=0.4, progress=None):
-    out = []
-    for i, tk in enumerate(tickers):
+# Rownolegle pobieranie: yfinance jest I/O-bound (~10 zapytan HTTP na spolke),
+# wiec watki daja ~7x przyspieszenie (475 spolek: ~24 min -> ~3 min). Przy 8-16
+# watkach Yahoo nie odrzuca zapytan (sprawdzone: te same braki co sekwencyjnie).
+WORKERS = int(os.environ.get("FETCH_WORKERS", "8"))
+
+
+def get_many(tickers, force=False, progress=None, workers=None):
+    """Dane dla listy spolek — rownolegle, z zachowaniem kolejnosci wejsciowej.
+
+    progress(i, n, ticker) wolane jest z watku glownego po kazdej gotowej
+    spolce (Streamlit nie lubi update'ow UI z watkow roboczych).
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    tickers = list(tickers)
+    n = len(tickers)
+    if not n:
+        return []
+
+    def _one(tk):
         try:
-            out.append(get(tk, force=force))
+            return get(tk, force=force)
         except Exception as e:
-            out.append({"ticker": tk, "name": config.NAMES.get(tk, tk),
-                        "market": config.market_of(tk), "error": str(e)})
-        if progress:
-            progress(i + 1, len(tickers), tk)
-        if force:
-            time.sleep(sleep)  # nie DDoS-ujemy Yahoo
+            return {"ticker": tk, "name": config.NAMES.get(tk, tk),
+                    "market": config.market_of(tk), "error": str(e)}
+
+    out = []
+    with ThreadPoolExecutor(max_workers=workers or WORKERS) as ex:
+        for i, res in enumerate(ex.map(_one, tickers)):
+            out.append(res)
+            if progress:
+                progress(i + 1, n, res.get("ticker", ""))
     return out
 
 
