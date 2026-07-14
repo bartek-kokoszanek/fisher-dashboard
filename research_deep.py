@@ -386,6 +386,100 @@ def research(ticker: str, name: str, market: str, website: str | None = None,
     return data
 
 
+# ------------------------------------------------------ dywidenda (grounding) ---
+
+DIV_PROMPT = """Znajdz w internecie (wyszukiwarka Google) informacje o OSTATNIEJ
+wyplaconej dywidendzie spolki {name} ({ticker}, gielda {market}). Dzis jest {today}.
+
+Interesuja mnie fakty z BIEZACEGO roku ({year}), a jesli w tym roku spolka jeszcze
+nie wyplacala/nie ustalila dywidendy — z roku poprzedniego ({prev}).
+
+Szukaj w wiarygodnych zrodlach: komunikaty spolki (ESPI/relacje inwestorskie),
+gpw.pl, serwisy gieldowe (np. Bankier, Stooq, StockWatch, Strefa Inwestorow).
+
+Zwroc WYLACZNIE poprawny JSON (bez tekstu przed/po). Pola, ktorych NIE udalo Ci sie
+potwierdzic w zrodlach, ustaw na null — NIE zgaduj:
+{{
+  "amount": <kwota dywidendy na 1 akcje, liczba, lub null>,
+  "currency": "<PLN/USD lub null>",
+  "ex_date": "<YYYY-MM-DD: dzien odciecia prawa do dywidendy / ostatni dzien
+               z prawem — dzien ustalenia prawa, lub null>",
+  "pay_date": "<YYYY-MM-DD: dzien wyplaty dywidendy na rachunek, lub null>",
+  "year": <rok, ktorego dotyczy wyplata>,
+  "note": "<1-2 zdania po polsku: czego dotyczy wyplata i co ustalono>",
+  "confidence": <0-100>
+}}"""
+
+
+def _div_cache_path(ticker: str) -> str:
+    os.makedirs(config.CACHE_DIR, exist_ok=True)
+    return os.path.join(config.CACHE_DIR, f"div_{ticker.replace('.', '_')}.json")
+
+
+def load_dividend_details(ticker: str) -> dict | None:
+    p = _div_cache_path(ticker)
+    if os.path.exists(p):
+        with open(p, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return None
+
+
+def dividend_details(ticker: str, name: str, market: str,
+                     force: bool = False) -> dict:
+    """Szczegoly ostatniej dywidendy przez Gemini + Google Search (grounding).
+
+    Uzupelnia luke w danych Yahoo: dzien WYPLATY dywidendy, ktorego dla
+    wiekszosci spolek GPW Yahoo nie publikuje. Wynik zawsze ze zrodlami
+    (grounding_chunks) — do weryfikacji przez uzytkownika. Cache: data/div_*.
+    """
+    path = _div_cache_path(ticker)
+    if not force and os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    import ai_research
+    if not ai_research.available():
+        raise RuntimeError("Wyszukiwanie dywidendy wymaga GEMINI_API_KEY.")
+
+    from google import genai
+    from google.genai import types
+
+    today = datetime.now(timezone.utc).date()
+    prompt = DIV_PROMPT.format(name=name, ticker=ticker, market=market,
+                               today=today.isoformat(), year=today.year,
+                               prev=today.year - 1)
+
+    def _generate(key: str, model: str):
+        client = genai.Client(api_key=key)
+        return client.models.generate_content(
+            model=model, contents=prompt,
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(google_search=types.GoogleSearch())]),
+        )
+
+    resp = ai_research._with_rotation(
+        _generate, models=ai_research._models(DEEP_MODEL, ["gemini-2.5-flash"]))
+    data = _extract_json(resp.text or "")
+
+    sources = []
+    try:
+        for cand in resp.candidates or []:
+            gm = getattr(cand, "grounding_metadata", None)
+            for ch in (getattr(gm, "grounding_chunks", None) or []):
+                web = getattr(ch, "web", None)
+                if web and web.uri:
+                    sources.append({"title": web.title or web.uri, "url": web.uri})
+    except Exception:
+        pass
+    data["sources"] = sources[:8]
+    data["ticker"] = ticker
+    data["model"] = DEEP_MODEL
+    data["researched_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    return data
+
+
 if __name__ == "__main__":
     import sys
     tk = sys.argv[1] if len(sys.argv) > 1 else "NVDA"

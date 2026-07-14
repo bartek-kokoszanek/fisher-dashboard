@@ -112,9 +112,14 @@ cd C:\Users\Bartek\Desktop\Claude\fisher-dashboard
 .\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
-Otwórz http://localhost:8501. Pierwsze załadowanie pobiera fundamenty z Yahoo
-(kilkadziesiąt spółek — potrwa ~1–2 min); potem dane są cache'owane w `data/` na 24h.
-Przycisk **🔄 Odśwież dane** wymusza ponowne pobranie.
+Otwórz http://localhost:8501. Pierwsze załadowanie pobiera fundamenty z Yahoo;
+potem dane są cache'owane w `data/` na 24h. Przycisk **🔄 Odśwież dane** wymusza
+ponowne pobranie.
+
+**Szybkość pobierania.** Spółki pobierane są **równolegle** (yfinance robi ~10
+zapytań HTTP na spółkę, więc wątki dają ~7× przyspieszenie: S&P500 ≈ 3 min
+zamiast ~24 min). Liczbę wątków zmienisz zmienną `FETCH_WORKERS` (domyślnie 8;
+przy 8–16 Yahoo nie odrzuca zapytań — sprawdzone).
 
 Gdyby `.venv` nie działało, odtwórz je:
 
@@ -213,10 +218,15 @@ dziennie (wyniki cache'owane 6 h).
 ## Financial Charts
 
 W sekcji analizy spółki (między oceną a deep research) moduł **📊 Financial Charts**:
-na górze **interpretacja AI** (Financial Quality 0–100 + wycena
-Cheap/Fair/Expensive), która **uwzględnia Twoje prywatne notatki** z sekcji
-„📝 Moje notatki" (model ocenia, czy metryki potwierdzają Twoje tezy, czy im
-przeczą); niżej kafelki KPI (Revenue/EPS CAGR, marża, ROE, P/E, dywidenda, FCF,
+na górze **interpretacja AI** (Financial Quality 0–100 + **wycena DCF/akcję** +
+wycena AI Cheap/Fair/Expensive), która **uwzględnia Twoje prywatne notatki**
+z sekcji „📝 Moje notatki" (model ocenia, czy metryki potwierdzają Twoje tezy,
+czy im przeczą; gdy zmienisz notatki po wygenerowaniu analizy, aplikacja
+oznaczy ją jako nieaktualną). Dalej blok **💰 Dywidenda** (ostatnia kwota
+na akcję, dzień odcięcia, dzień wypłaty, stopa dywidendy + historia wypłat);
+dla spółek, dla których Yahoo nie podaje **dnia wypłaty** (większość GPW),
+przycisk *🔎 Znajdź dzień wypłaty* dociąga go przez AI z wyszukiwarką —
+zawsze z linkami do źródeł do weryfikacji. Niżej kafelki KPI (Revenue/EPS CAGR, marża, ROE, P/E, dywidenda, FCF,
 dług/EBITDA) i 15 wykresów Plotly w kartach 2-kolumnowych (przychody, wzrost,
 zysk, marże, ROE, ROIC, FCF, dług netto, **P/E history z pasmami
 i auto-komentarzem**, dywidendy, liczba akcji z wykryciem buyback/dilution,
@@ -297,6 +307,15 @@ Do tego C/Z i kapitalizację.
 Źródło: Yahoo Finance (kalendarz wyników/dywidend, historia wypłat, earnings
 history + szacunki analityków); dla części spółek GPW dane są niedostępne
 (puste pola).
+
+**Układ tabeli (trwały).** W expanderze **⚙️ Ustawienia tabeli** kafelki kolumn
+**przeciągasz myszką**: kolejność w „Widoczne" = kolejność kolumn w tabeli,
+a przeciągnięcie do „Ukryte" usuwa kolumnę. Układ i wybrany segment zapisują się
+w tym samym miejscu co listy (Gist/plik), więc przeżywają restart.
+
+> ⚠️ Przeciąganie nagłówków **wewnątrz** tabeli Streamlit pokazuje zmianę tylko
+> wizualnie — komponent nie zgłasza nowej kolejności do aplikacji, więc nie da
+> się jej zapamiętać. Trwałą kolejność ustawia się kafelkami (wyżej).
 
 ---
 
