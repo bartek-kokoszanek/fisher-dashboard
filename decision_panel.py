@@ -185,6 +185,33 @@ def final_verdict(gate: list[dict], kill_broken: int) -> dict:
             "desc": "asymetria lub CAGR ponizej wymagan"}
 
 
+def verdict_for(ticker: str, row: dict, wl: dict | None = None) -> dict | None:
+    """Werdykt bramki BEZ renderowania panelu — do kolumny w rankingu.
+
+    Idzie dokladnie ta sama sciezka co render(), zeby kolumna i panel nigdy
+    nie pokazaly dwoch roznych werdyktow: baza AI (gdy wygenerowana) albo
+    mechaniczna, na to nadpisania uzytkownika z wl["decision"][ticker],
+    ta sama bramka i ten sam licznik zlamanych kill criteria.
+    Zwraca None, gdy nie da sie zbudowac scenariuszy (brak ceny i konsensusu).
+    """
+    user = ((wl or {}).get("decision") or {}).get(ticker) or {}
+    baseline = load_cached(ticker) or mechanical_baseline(row)
+    merged = _merge(baseline, user)
+    scen = merged.get("scenarios") or {}
+    if not scen:
+        return None
+    mth = compute_math(_f(row.get("price")), scen)
+    gate = eval_gate(row, mth,
+                     {g["id"]: g for g in merged.get("gate", [])
+                      if isinstance(g, dict)},
+                     user.get("gate_overrides", {}))
+    kill = list(merged.get("kill") or [])
+    n_broken = len([k for k in (user.get("kill_broken") or []) if k in kill])
+    out = final_verdict(gate, n_broken)
+    out["source"] = baseline.get("source", "mechanical")
+    return out
+
+
 def mechanical_baseline(row: dict) -> dict:
     """Baza scenariuszy bez AI: konsensus analitykow albo proste mnozniki ceny."""
     price = _f(row.get("price"))
