@@ -93,6 +93,61 @@ def save(data: dict) -> str | None:
         return f"Zapis do Gista nie powiodl sie ({e}); listy zapisane tylko lokalnie."
 
 
+# --------------------------------------------------- dowolny plik w Giscie ---
+# Ten sam Gist trzyma tez inne male, trwale dane aplikacji (np. ceny docelowe
+# PWPA). Dysk Streamlit Cloud jest ulotny, wiec bez tego kazdy redeploy
+# kasowalby wyniki i kazalby liczyc je od nowa.
+
+def load_file(name: str) -> dict | None:
+    """Wczytuje <name>.json z Gista (fallback: data/<name>). None = brak."""
+    conf = _gist_conf()
+    if conf:
+        token, gist_id = conf
+        try:
+            r = requests.get(_API.format(gist_id=gist_id),
+                             headers=_headers(token), timeout=15)
+            r.raise_for_status()
+            files = r.json().get("files", {})
+            if name in files:
+                return json.loads(files[name].get("content") or "{}")
+        except Exception:
+            pass  # spadamy na lokalny fallback
+    path = os.path.join(config.CACHE_DIR, name)
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return None
+
+
+def save_file(name: str, data: dict) -> str | None:
+    """Zapisuje <name>.json lokalnie i (gdy skonfigurowany) do Gista.
+
+    PATCH na Giscie dotyka tylko tego jednego pliku, wiec nie kasuje list.
+    """
+    os.makedirs(config.CACHE_DIR, exist_ok=True)
+    with open(os.path.join(config.CACHE_DIR, name), "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+    conf = _gist_conf()
+    if not conf:
+        return None
+    token, gist_id = conf
+    try:
+        r = requests.patch(
+            _API.format(gist_id=gist_id), headers=_headers(token),
+            json={"files": {name: {
+                "content": json.dumps(data, ensure_ascii=False, indent=2)}}},
+            timeout=20,
+        )
+        r.raise_for_status()
+        return None
+    except Exception as e:
+        return f"Zapis {name} do Gista nie powiodl sie ({e}); zapisano lokalnie."
+
+
 def all_listed_tickers(data: dict) -> set[str]:
     out: set[str] = set()
     for tickers in data.get("lists", {}).values():

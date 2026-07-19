@@ -21,6 +21,7 @@ import fisher_score
 import gpw_indices
 import gurus
 import pwpa
+import pwpa_targets
 import research_deep
 import universe
 import watchlists
@@ -449,13 +450,33 @@ _VALUATION_PL = {"Cheap": "🟢 Tania", "Fair": "🟡 Uczciwa", "Expensive": "�
 _GATE_EMOJI = {"green": "🟢", "amber": "🟡", "red": "🔴"}
 
 
+# ceny docelowe PWPA: odswiezanie chodzi w WATKU W TLE (max raz na 24 h),
+# nie blokuje renderu; tutaj tylko odczyt tego, co juz gotowe
+try:
+    pwpa_targets.ensure_fresh()
+except Exception:
+    pass
+_pwpa_targets_cache = pwpa_targets.load().get("targets", {})
+
+
 def _cell_pwpa(t: str):
+    """Cena docelowa z najnowszego raportu PWPA + data wyceny.
+
+    Ekstrakcja ceny (PDF -> AI) chodzi w tle raz na 24 h (pwpa_targets),
+    wiec tutaj tylko odczyt. Stany: '125.00 PLN · data' / 'brak ceny · data'
+    (raport bez formalnej wyceny) / '… · data' (jeszcze nieprzetworzony).
+    """
     if not t.endswith(".WA"):
         return None
-    reps = _pwpa_by_ticker.get(t[:-3].upper().strip())
-    if not reps:
-        return None
-    return f"{len(reps)} · {max(r['date'] for r in reps)}"
+    base = t[:-3].upper().strip()
+    entry = _pwpa_targets_cache.get(base)
+    if entry:
+        price, curr = entry.get("target_price"), entry.get("currency") or ""
+        if isinstance(price, (int, float)) and not isinstance(price, bool):
+            return f"{price:.2f} {curr} · {entry.get('date', '')}".strip()
+        return f"brak ceny · {entry.get('date', '')}"
+    reps = _pwpa_by_ticker.get(base)
+    return f"… · {max(r['date'] for r in reps)}" if reps else None
 
 
 def _cell_valuation(t: str):
@@ -665,10 +686,13 @@ col_cfg = {
         help="Kwota dywidendy na akcje (w walucie notowan) - z biezacego "
              "roku, a gdy brak, z ubieglego"),
     "GPW PWPA": st.column_config.TextColumn(
-        help="Raporty analityczne z programu GPW PWPA: liczba raportow "
-             "i data najnowszego. Pelna lista z linkami do PDF oraz "
-             "wyciaganie ceny docelowej — w analizie spolki. "
-             "Puste = spolka spoza programu (m.in. cala Nasdaq)."),
+        help="Cena docelowa z NAJNOWSZEGO raportu maklerskiego GPW PWPA "
+             "+ data tego raportu. Cene wyciaga AI z PDF automatycznie "
+             "w tle, raz na 24 h. '…' = raport jest, cena jeszcze "
+             "nieprzetworzona; 'brak ceny' = raport bez formalnej wyceny "
+             "(np. komentarz do wynikow). Puste = spolka spoza programu "
+             "(m.in. cala Nasdaq). Pelna lista raportow z linkami do PDF "
+             "oraz recznym wyciaganiem wyceny — w analizie spolki."),
     "Wycena (AI)": st.column_config.TextColumn(
         help="Ocena wyceny z sekcji Financial Charts. Puste = nie "
              "wygenerowano jeszcze podsumowania AI dla tej spolki."),
@@ -731,8 +755,9 @@ st.caption("Cena, cena docelowa, przychody i dywidenda w walucie notowan "
            "dnia wyplaty dla wiekszosci spolek GPW Yahoo nie publikuje. "
            "Sygnal = decyzja wg wybranej strategii (Kupuj/Akumuluj/Trzymaj/Sprzedaj) "
            "na podstawie Wyniku. Dla czesci spolek GPW konsensus analitykow niedostepny. "
-           "GPW PWPA = liczba raportow maklerskich i data najnowszego (tylko spolki "
-           "objete programem). Wycena (AI), WERDYKT BRAMKI i Sentyment rynku "
+           "GPW PWPA = cena docelowa z najnowszego raportu maklerskiego i data "
+           "tego raportu (tylko spolki objete programem; ekstrakcja z PDF przez "
+           "AI chodzi w tle raz na 24 h). Wycena (AI), WERDYKT BRAMKI i Sentyment rynku "
            "pokazuja wyniki analiz uruchamianych per spolka (Financial Charts, "
            "Panel decyzyjny, Deep research) — puste pole znaczy, ze dla tej spolki "
            "jeszcze ich nie uruchomiles.")
@@ -745,6 +770,12 @@ if "fetched_at" in view.columns:
                   f"zaktualizowano między {fmt_dt(_fts[0])} a {fmt_dt(_fts[-1])}")
         st.caption(f"🗓 Źródło danych: **Yahoo Finance** · {_fresh} "
                    f"(cache 24h — wymuś pobranie przyciskiem 🔄 w panelu bocznym).")
+
+_pt_status = pwpa_targets.status()
+if _pt_status:
+    st.caption(f"📄 Ceny docelowe **GPW PWPA**: {_pt_status.replace('odświeżono', '· odświeżono')}"
+               + ("" if ai_research.available() else
+                  " · wymaga GEMINI_API_KEY, żeby ruszyła ekstrakcja z PDF"))
 
 st.download_button(
     "⬇ Eksport watchlisty do TradingView (CSV tickerow)",
