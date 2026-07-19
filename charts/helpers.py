@@ -11,10 +11,11 @@ from __future__ import annotations
 import math
 
 # --- Kolory (paleta ze specyfikacji) ---
-# Blekit jest ten sam co primaryColor w .streamlit/config.toml — w calej
-# aplikacji obowiazuje JEDEN akcent, a czerwien/zielen znacza spadek/wzrost.
+# Blekit jest ten sam co primaryColor w .streamlit/config.toml (motyw
+# tylko-ciemny) — w calej aplikacji obowiazuje JEDEN akcent, a czerwien/
+# zielen znacza wylacznie spadek/wzrost.
 COLORS = {
-    "revenue": "#2f6fdb",     # niebieski (akcent aplikacji)
+    "revenue": "#5b8def",     # niebieski (akcent aplikacji, motyw ciemny)
     "net_income": "#16a34a",  # zielony
     "margin": "#7c3aed",      # fioletowy
     "pe": "#ea580c",          # pomaranczowy

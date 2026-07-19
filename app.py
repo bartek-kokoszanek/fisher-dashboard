@@ -192,24 +192,30 @@ def co_label(ticker: str, row: dict) -> str:
 
 
 def sortable_style() -> str:
-    """Styl kafelkow kolumn dopasowany do aktywnego motywu.
+    """Styl kafelkow kolumn dla motywu aplikacji (domyslnie tylko-ciemny).
 
     Komponent renderuje sie w iframie i nie dziedziczy motywu Streamlita, wiec
     kolory podajemy wprost — ale przez WLASNE API komponentu (custom_style),
     nie przez selektory DOM Streamlita, wiec aktualizacja frameworka tego nie
     zepsuje. Kafelki celowo sa neutralne (szarosc + blekitny akcent): czerwien
     i zielen nalezą w tej aplikacji do znaczenia (spadek / wzrost).
+
+    Aplikacja definiuje tylko motyw ciemny (.streamlit/config.toml) — jasnej
+    galezi ponizej uzyje tylko ktos, kto recznie przelaczy sie na WBUDOWANY
+    jasny motyw Streamlita z menu ☰ -> Settings (wtedy dostaje domyslna,
+    nie nasza, jasna palete Streamlita — kafelki dostosowuja sie do niej
+    neutralnymi kolorami zamiast razic ciemnym tlem na jasnym tle).
     """
     try:
         dark = st.context.theme.type == "dark"
     except Exception:
-        dark = False
+        dark = True
     if dark:
         bg, border, chip, chip_fg = "#0f1218", "#272d3a", "#1c2230", "#e5e9f0"
         head, accent = "#8b94a7", "#5b8def"
     else:
-        bg, border, chip, chip_fg = "#fcfcfd", "#e2e6ee", "#eef1f6", "#111827"
-        head, accent = "#6b7280", "#2f6fdb"
+        bg, border, chip, chip_fg = "#ffffff", "#d3d8de", "#f0f2f5", "#31333f"
+        head, accent = "#6b7280", "#5b8def"
     return f"""
 .sortable-component {{
     background: {bg};
