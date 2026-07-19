@@ -8,10 +8,13 @@
 # nienacechowany akcent: jeden blekit, ten sam co seria "Przychody"
 # na wykresach (charts/helpers.py) -> w calej aplikacji jest JEDEN blekit.
 #
-# Motyw jasny i ciemny sa zdefiniowane rownolegle; bez ustawienia "base"
-# Streamlit respektuje preferencje systemu/przegladarki uzytkownika.
+# Motyw jasny i ciemny sa zdefiniowane rownolegle. base="dark" wymusza
+# ciemny jako domyslny dla calej aplikacji (niezaleznie od preferencji
+# systemu/przegladarki) — jasny zostaje dostepny w menu Streamlita
+# (☰ -> Settings -> Choose app theme), jesli ktos go recznie wybierze.
 
 [theme]
+base = "dark"
 font = "sans-serif"
 headingFont = "sans-serif"
 codeFont = "monospace"

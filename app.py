@@ -492,6 +492,14 @@ view["market_sentiment"] = view["ticker"].map(_cell_sentiment)
 view["signal"] = view["combined"].map(
     lambda s: f"{fisher_score.action_verdict(s)['emoji']} "
               f"{fisher_score.action_verdict(s)['label']}")
+view["signal_level"] = view["combined"].map(
+    lambda s: fisher_score.action_verdict(s)["level"])
+
+# etykiety filtra sygnalu — wziete z action_verdict (reprezentatywny wynik na
+# poziom), zeby nie duplikowac tresci etykiet/emoji na dwa sposoby w kodzie
+_SIGNAL_SAMPLE = {"buy": 85, "accumulate": 64, "hold": 50, "sell": 20, "none": None}
+SIGNAL_OPTIONS = {lvl: (lambda v: f"{v['emoji']} {v['label']}")(fisher_score.action_verdict(sc))
+                  for lvl, sc in _SIGNAL_SAMPLE.items()}
 
 # etykieta kolumny -> kolumna zrodlowa (kanoniczna kolejnosc)
 COLS = {
@@ -540,6 +548,48 @@ with st.expander("⚙️ Ustawienia tabeli (kolumny · grupa dla ±)"):
         st.caption("Utwórz listę w panelu bocznym, by włączyć kolumnę ± "
                    "(dodawanie/usuwanie spółek z grupy).")
 
+    st.divider()
+    _saved_sig = settings.get("signal_filter") or list(SIGNAL_OPTIONS)
+    sig_sel = st.multiselect(
+        "Sygnał — pokaż tylko", list(SIGNAL_OPTIONS),
+        default=[lv for lv in _saved_sig if lv in SIGNAL_OPTIONS],
+        format_func=lambda lv: SIGNAL_OPTIONS[lv], key="rank_signal_filter",
+        help="Filtruje wiersze po kolumnie Sygnał (decyzja wg wybranej "
+             "strategii). Filtr obejmuje też eksport CSV i listę do wyboru "
+             "w sekcji Analiza spółki. Pusty wybór = pokaż wszystko. "
+             "Wybór jest zapamiętywany.")
+    if not sig_sel:
+        sig_sel = list(SIGNAL_OPTIONS)
+    if sig_sel != settings.get("signal_filter"):
+        settings["signal_filter"] = sig_sel
+        save_wl()
+
+    st.divider()
+    with st.expander("📏 Szerokość kolumn (px; puste = automatycznie)"):
+        st.caption("Streamlit nie zgłasza do aplikacji szerokości ustawionej "
+                   "przeciąganiem krawędzi nagłówka w samej tabeli (to czysto "
+                   "wizualna zmiana we frontendzie) — dlatego szerokość "
+                   "ustawiasz tu, liczbowo. W przeciwieństwie do przeciągania "
+                   "w tabeli, to się zapamiętuje.")
+        _saved_w = settings.get("column_widths") or {}
+        new_w = dict(_saved_w)
+        _wcols = st.columns(4)
+        for _i, _c in enumerate(sel_cols):
+            with _wcols[_i % 4]:
+                _px = st.number_input(
+                    _c, min_value=0, max_value=800,
+                    value=int(_saved_w.get(_c, 0)), step=10,
+                    key=f"colw_{_c}", help="0 = szerokość automatyczna")
+                if _px:
+                    new_w[_c] = _px
+                else:
+                    new_w.pop(_c, None)
+        if new_w != _saved_w:
+            settings["column_widths"] = new_w
+            save_wl()
+
+view = view[view["signal_level"].isin(sig_sel)]
+
 table = view[[COLS[c] for c in sel_cols]].rename(
     columns={src: lbl for lbl, src in COLS.items()})
 
@@ -565,79 +615,86 @@ styled = table.style.map(
 # wysokosc = wszystkie wiersze bez wewnetrznego przewijania
 _tbl_height = 38 + 35 * len(table)
 
+col_cfg = {
+    "± Grupa": st.column_config.CheckboxColumn(
+        "± Grupa", help="Zaznacz, by dodać spółkę do wybranej grupy; "
+                        "odznacz, by ją usunąć."),
+    "Cena": st.column_config.NumberColumn(format="%.2f"),
+    "Cena docelowa": st.column_config.NumberColumn(format="%.2f"),
+    "Do celu %": st.column_config.NumberColumn(format="%+.1f%%"),
+    "Rekom.": st.column_config.NumberColumn(format="%d"),
+    "Wyniki (data)": st.column_config.TextColumn(
+        help="Data najblizszego sprawozdania kwartalnego (kalendarz Yahoo)"),
+    "Przych. r/r (est.)": st.column_config.NumberColumn(
+        format="%+.1f%%",
+        help="Konsensus analitykow: oczekiwany wzrost przychodow r/r "
+             "na najblizszy raportowany kwartal"),
+    "Zysk r/r (est.)": st.column_config.NumberColumn(
+        format="%+.1f%%",
+        help="Konsensus analitykow: oczekiwany wzrost zysku (EPS) r/r "
+             "na najblizszy raportowany kwartal"),
+    "Ost. kwartal": st.column_config.TextColumn(
+        help="Koniec ostatniego OPUBLIKOWANEGO kwartalu"),
+    "Ost. przychody": st.column_config.NumberColumn(
+        format="compact",
+        help="Przychody z ostatnio opublikowanych wynikow kwartalnych"),
+    "Ost. EPS": st.column_config.NumberColumn(
+        format="%.2f",
+        help="Zysk na akcje (EPS) z ostatnio opublikowanych wynikow "
+             "kwartalnych"),
+    "EPS vs konsensus": st.column_config.NumberColumn(
+        format="%+.1f%%",
+        help="O ile opublikowany EPS pobil (+) lub zawiodl (-) konsensus "
+             "analitykow. Wstecznego konsensusu PRZYCHODOW Yahoo nie "
+             "udostepnia, wiec pokazujemy tylko EPS."),
+    "Dyw. ex-date": st.column_config.TextColumn(
+        help="Dzien odciecia prawa do dywidendy (ex-dividend) z biezacego "
+             "roku - najblizszy zadeklarowany albo juz miniony; gdy w tym "
+             "roku brak, ostatni z ubieglego roku"),
+    "Dyw. wyplata": st.column_config.TextColumn(
+        help="Dzien wyplaty dywidendy. Zna go tylko kalendarz Yahoo - "
+             "dla wiekszosci spolek GPW nie jest publikowany (puste pole)"),
+    "Dyw./akcje": st.column_config.NumberColumn(
+        format="%.2f",
+        help="Kwota dywidendy na akcje (w walucie notowan) - z biezacego "
+             "roku, a gdy brak, z ubieglego"),
+    "GPW PWPA": st.column_config.TextColumn(
+        help="Raporty analityczne z programu GPW PWPA: liczba raportow "
+             "i data najnowszego. Pelna lista z linkami do PDF oraz "
+             "wyciaganie ceny docelowej — w analizie spolki. "
+             "Puste = spolka spoza programu (m.in. cala Nasdaq)."),
+    "Wycena (AI)": st.column_config.TextColumn(
+        help="Ocena wyceny z sekcji Financial Charts. Puste = nie "
+             "wygenerowano jeszcze podsumowania AI dla tej spolki."),
+    "WERDYKT BRAMKI": st.column_config.TextColumn(
+        help="Werdykt bramki z Panelu decyzyjnego (ta sama logika, wiec "
+             "kolumna i panel nie moga sie rozjechac). Puste = brak bazy "
+             "scenariuszy: wygeneruj ja AI albo wpisz recznie w panelu. "
+             "Sama baza mechaniczna nie jest pokazywana, bo wyprowadza "
+             "3-letni scenariusz z 12-miesiecznej ceny docelowej i dawalaby "
+             "'NIE KUPUJ' w kazdym wierszu."),
+    "Sentyment rynku": st.column_config.NumberColumn(
+        format="%+d",
+        help="Sentyment z Deep research (-100 skrajnie negatywny ... "
+             "+100 skrajnie pozytywny). NIE wplywa na Wynik strategii. "
+             "Puste = nie uruchomiono deep researchu dla tej spolki."),
+    "C/Z": st.column_config.NumberColumn(format="%.1f"),
+    "Kap. rynk.": st.column_config.NumberColumn(format="compact"),
+    "Wynik": st.column_config.ProgressColumn("Wynik", min_value=0, max_value=100, format="%.1f"),
+    "Pokrycie %": st.column_config.NumberColumn(format="%d%%"),
+}
+
+# szerokosci ustawione recznie (patrz "📏 Szerokosc kolumn") — obiekty
+# column_config.* sa zwyklymi dict-ami, wiec mozna dopisac "width" po fakcie
+for _c, _px in (settings.get("column_widths") or {}).items():
+    col_cfg.setdefault(_c, {})["width"] = _px
+
 edited = st.data_editor(
     styled,
     width="stretch", hide_index=True, height=_tbl_height,
     disabled=[c for c in table.columns if c != "± Grupa"],
     key=f"rankedit_{group}_{len(wl['lists'].get(group, [])) if group else 0}",
-    column_config={
-        "± Grupa": st.column_config.CheckboxColumn(
-            "± Grupa", help="Zaznacz, by dodać spółkę do wybranej grupy; "
-                            "odznacz, by ją usunąć."),
-        "Cena": st.column_config.NumberColumn(format="%.2f"),
-        "Cena docelowa": st.column_config.NumberColumn(format="%.2f"),
-        "Do celu %": st.column_config.NumberColumn(format="%+.1f%%"),
-        "Rekom.": st.column_config.NumberColumn(format="%d"),
-        "Wyniki (data)": st.column_config.TextColumn(
-            help="Data najblizszego sprawozdania kwartalnego (kalendarz Yahoo)"),
-        "Przych. r/r (est.)": st.column_config.NumberColumn(
-            format="%+.1f%%",
-            help="Konsensus analitykow: oczekiwany wzrost przychodow r/r "
-                 "na najblizszy raportowany kwartal"),
-        "Zysk r/r (est.)": st.column_config.NumberColumn(
-            format="%+.1f%%",
-            help="Konsensus analitykow: oczekiwany wzrost zysku (EPS) r/r "
-                 "na najblizszy raportowany kwartal"),
-        "Ost. kwartal": st.column_config.TextColumn(
-            help="Koniec ostatniego OPUBLIKOWANEGO kwartalu"),
-        "Ost. przychody": st.column_config.NumberColumn(
-            format="compact",
-            help="Przychody z ostatnio opublikowanych wynikow kwartalnych"),
-        "Ost. EPS": st.column_config.NumberColumn(
-            format="%.2f",
-            help="Zysk na akcje (EPS) z ostatnio opublikowanych wynikow "
-                 "kwartalnych"),
-        "EPS vs konsensus": st.column_config.NumberColumn(
-            format="%+.1f%%",
-            help="O ile opublikowany EPS pobil (+) lub zawiodl (-) konsensus "
-                 "analitykow. Wstecznego konsensusu PRZYCHODOW Yahoo nie "
-                 "udostepnia, wiec pokazujemy tylko EPS."),
-        "Dyw. ex-date": st.column_config.TextColumn(
-            help="Dzien odciecia prawa do dywidendy (ex-dividend) z biezacego "
-                 "roku - najblizszy zadeklarowany albo juz miniony; gdy w tym "
-                 "roku brak, ostatni z ubieglego roku"),
-        "Dyw. wyplata": st.column_config.TextColumn(
-            help="Dzien wyplaty dywidendy. Zna go tylko kalendarz Yahoo - "
-                 "dla wiekszosci spolek GPW nie jest publikowany (puste pole)"),
-        "Dyw./akcje": st.column_config.NumberColumn(
-            format="%.2f",
-            help="Kwota dywidendy na akcje (w walucie notowan) - z biezacego "
-                 "roku, a gdy brak, z ubieglego"),
-        "GPW PWPA": st.column_config.TextColumn(
-            help="Raporty analityczne z programu GPW PWPA: liczba raportow "
-                 "i data najnowszego. Pelna lista z linkami do PDF oraz "
-                 "wyciaganie ceny docelowej — w analizie spolki. "
-                 "Puste = spolka spoza programu (m.in. cala Nasdaq)."),
-        "Wycena (AI)": st.column_config.TextColumn(
-            help="Ocena wyceny z sekcji Financial Charts. Puste = nie "
-                 "wygenerowano jeszcze podsumowania AI dla tej spolki."),
-        "WERDYKT BRAMKI": st.column_config.TextColumn(
-            help="Werdykt bramki z Panelu decyzyjnego (ta sama logika, wiec "
-                 "kolumna i panel nie moga sie rozjechac). Puste = brak bazy "
-                 "scenariuszy: wygeneruj ja AI albo wpisz recznie w panelu. "
-                 "Sama baza mechaniczna nie jest pokazywana, bo wyprowadza "
-                 "3-letni scenariusz z 12-miesiecznej ceny docelowej i dawalaby "
-                 "'NIE KUPUJ' w kazdym wierszu."),
-        "Sentyment rynku": st.column_config.NumberColumn(
-            format="%+d",
-            help="Sentyment z Deep research (-100 skrajnie negatywny ... "
-                 "+100 skrajnie pozytywny). NIE wplywa na Wynik strategii. "
-                 "Puste = nie uruchomiono deep researchu dla tej spolki."),
-        "C/Z": st.column_config.NumberColumn(format="%.1f"),
-        "Kap. rynk.": st.column_config.NumberColumn(format="compact"),
-        "Wynik": st.column_config.ProgressColumn("Wynik", min_value=0, max_value=100, format="%.1f"),
-        "Pokrycie %": st.column_config.NumberColumn(format="%d%%"),
-    },
+    column_config=col_cfg,
 )
 
 # zastosuj zmiany z kolumny ±: roznica zaznaczen -> dodaj/usun w grupie
