@@ -259,6 +259,17 @@ st.sidebar.caption(gurus.get(guru_key)["desc"])
 wl = get_wl()
 settings = wl.setdefault("settings", {})
 
+# Nowe kolumny dopisujemy do ZAPISANEGO ukladu, zamiast chowac je w "Ukryte"
+# (zapisana lista ich nie zna, wiec bez tego nikt by ich nie zobaczyl).
+# Kolejnosc uzytkownika zostaje nietknieta — nowe ladują na koncu.
+_COLS_VERSION = 1
+if settings.get("ranking_columns") and settings.get("cols_version", 0) < _COLS_VERSION:
+    for _c in ("GPW PWPA", "Wycena (AI)", "WERDYKT BRAMKI", "Sentyment rynku"):
+        if _c not in settings["ranking_columns"]:
+            settings["ranking_columns"].append(_c)
+    settings["cols_version"] = _COLS_VERSION
+    save_wl()
+
 _saved_seg = settings.get("segments")
 _seg_default = [s for s in (_saved_seg or ["WIG20", "mWIG40", "sWIG80"])
                 if s in gpw_indices.ALL_SEGMENTS]
@@ -417,6 +428,67 @@ def _rec_label(r):
 
 
 view["rec_label"] = view.apply(_rec_label, axis=1)
+
+# --- kolumny z modulow analizy (PWPA / wycena AI / bramka / sentyment) ---
+# Wszystkie czytaja WYLACZNIE z cache — zero zapytan do API na wiersz.
+# Indeks PWPA pobieramy RAZ dla calej tabeli (nie per spolka).
+_pwpa_by_ticker: dict[str, list] = {}
+try:
+    for _r in pwpa.list_reports():
+        _pwpa_by_ticker.setdefault(_r["ticker"], []).append(_r)
+except Exception:
+    pass  # brak sieci / zrodlo niedostepne -> kolumna zostaje pusta
+
+_VALUATION_PL = {"Cheap": "🟢 Tania", "Fair": "🟡 Uczciwa", "Expensive": "🔴 Droga"}
+_GATE_EMOJI = {"green": "🟢", "amber": "🟡", "red": "🔴"}
+
+
+def _cell_pwpa(t: str):
+    if not t.endswith(".WA"):
+        return None
+    reps = _pwpa_by_ticker.get(t[:-3].upper().strip())
+    if not reps:
+        return None
+    return f"{len(reps)} · {max(r['date'] for r in reps)}"
+
+
+def _cell_valuation(t: str):
+    fin = financial_charts.load_interpret(t) or {}
+    v = fin.get("valuation")
+    return _VALUATION_PL.get(v, v) if v else None
+
+
+def _cell_gate(t: str, r: dict):
+    # Pokazujemy werdykt TYLKO gdy stoi za nim realna baza: scenariusze z AI
+    # albo Twoje wlasne wpisy w panelu. Baza czysto mechaniczna wyprowadza
+    # scenariusz 3-letni z 12-miesiecznej ceny docelowej, wiec CAGR wypada
+    # ponizej progu praktycznie zawsze — kolumna pokazywalaby "NIE KUPUJ"
+    # w kazdym wierszu i udawala werdykt, ktorym nie jest.
+    if decision_panel.load_cached(t) is None and \
+            not (wl.get("decision") or {}).get(t):
+        return None
+    try:
+        v = decision_panel.verdict_for(t, r, wl)
+    except Exception:
+        return None
+    if not v:
+        return None
+    # etykiety panelu bywaja dlugie ("... — pol pozycji") — w tabeli tniemy
+    # do czesci glownej, ale bierzemy ja z panelu, wiec nie moze sie rozjechac
+    return f"{_GATE_EMOJI.get(v['level'], '')} {v['label'].split('—')[0].strip()}"
+
+
+def _cell_sentiment(t: str):
+    d = research_deep.load_cached(t) or {}
+    s = d.get("sentiment")
+    return float(s) if isinstance(s, (int, float)) and not isinstance(s, bool) else None
+
+
+view["pwpa_cell"] = view["ticker"].map(_cell_pwpa)
+view["ai_valuation"] = view["ticker"].map(_cell_valuation)
+view["gate_verdict"] = [_cell_gate(t, r) for t, r
+                        in zip(view["ticker"], view.to_dict("records"))]
+view["market_sentiment"] = view["ticker"].map(_cell_sentiment)
 view["signal"] = view["combined"].map(
     lambda s: f"{fisher_score.action_verdict(s)['emoji']} "
               f"{fisher_score.action_verdict(s)['label']}")
@@ -434,6 +506,8 @@ COLS = {
     "Dyw./akcje": "last_dividend_value",
     "C/Z": "trailing_pe", "Kap. rynk.": "market_cap",
     "Wynik": "combined", "Sygnal": "signal", "Pokrycie %": "coverage",
+    "GPW PWPA": "pwpa_cell", "Wycena (AI)": "ai_valuation",
+    "WERDYKT BRAMKI": "gate_verdict", "Sentyment rynku": "market_sentiment",
 }
 
 # --- ustawienia tabeli: wybor/kolejnosc kolumn (trwale) + grupa dla +/- ---
@@ -484,7 +558,8 @@ def _upside_color(v):
 
 styled = table.style.map(
     _upside_color, subset=[c for c in ("Do celu %", "Przych. r/r (est.)",
-                                       "Zysk r/r (est.)", "EPS vs konsensus")
+                                       "Zysk r/r (est.)", "EPS vs konsensus",
+                                       "Sentyment rynku")
                            if c in table.columns])
 
 # wysokosc = wszystkie wiersze bez wewnetrznego przewijania
@@ -538,6 +613,26 @@ edited = st.data_editor(
             format="%.2f",
             help="Kwota dywidendy na akcje (w walucie notowan) - z biezacego "
                  "roku, a gdy brak, z ubieglego"),
+        "GPW PWPA": st.column_config.TextColumn(
+            help="Raporty analityczne z programu GPW PWPA: liczba raportow "
+                 "i data najnowszego. Pelna lista z linkami do PDF oraz "
+                 "wyciaganie ceny docelowej — w analizie spolki. "
+                 "Puste = spolka spoza programu (m.in. cala Nasdaq)."),
+        "Wycena (AI)": st.column_config.TextColumn(
+            help="Ocena wyceny z sekcji Financial Charts. Puste = nie "
+                 "wygenerowano jeszcze podsumowania AI dla tej spolki."),
+        "WERDYKT BRAMKI": st.column_config.TextColumn(
+            help="Werdykt bramki z Panelu decyzyjnego (ta sama logika, wiec "
+                 "kolumna i panel nie moga sie rozjechac). Puste = brak bazy "
+                 "scenariuszy: wygeneruj ja AI albo wpisz recznie w panelu. "
+                 "Sama baza mechaniczna nie jest pokazywana, bo wyprowadza "
+                 "3-letni scenariusz z 12-miesiecznej ceny docelowej i dawalaby "
+                 "'NIE KUPUJ' w kazdym wierszu."),
+        "Sentyment rynku": st.column_config.NumberColumn(
+            format="%+d",
+            help="Sentyment z Deep research (-100 skrajnie negatywny ... "
+                 "+100 skrajnie pozytywny). NIE wplywa na Wynik strategii. "
+                 "Puste = nie uruchomiono deep researchu dla tej spolki."),
         "C/Z": st.column_config.NumberColumn(format="%.1f"),
         "Kap. rynk.": st.column_config.NumberColumn(format="compact"),
         "Wynik": st.column_config.ProgressColumn("Wynik", min_value=0, max_value=100, format="%.1f"),
@@ -572,7 +667,12 @@ st.caption("Cena, cena docelowa, przychody i dywidenda w walucie notowan "
            "Dywidenda: dane z biezacego roku, a gdy brak - z ubieglego; "
            "dnia wyplaty dla wiekszosci spolek GPW Yahoo nie publikuje. "
            "Sygnal = decyzja wg wybranej strategii (Kupuj/Akumuluj/Trzymaj/Sprzedaj) "
-           "na podstawie Wyniku. Dla czesci spolek GPW konsensus analitykow niedostepny.")
+           "na podstawie Wyniku. Dla czesci spolek GPW konsensus analitykow niedostepny. "
+           "GPW PWPA = liczba raportow maklerskich i data najnowszego (tylko spolki "
+           "objete programem). Wycena (AI), WERDYKT BRAMKI i Sentyment rynku "
+           "pokazuja wyniki analiz uruchamianych per spolka (Financial Charts, "
+           "Panel decyzyjny, Deep research) — puste pole znaczy, ze dla tej spolki "
+           "jeszcze ich nie uruchomiles.")
 
 # swiezosc danych rankingu: zakres czasow pobrania widocznych spolek
 if "fetched_at" in view.columns:
