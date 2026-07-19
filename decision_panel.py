@@ -418,7 +418,9 @@ def render(ticker: str, row: dict, wl: dict, save_wl) -> None:
     import research_deep
     from charts.helpers import fmt_dt
 
-    st.subheader("🎯 Panel decyzyjny — scenariusze 3Y, bramka, kill criteria")
+    st.subheader(f"🎯 Panel decyzyjny — {ticker} — {row.get('name', ticker)}")
+    st.caption("Scenariusze 3-letnie, bramka decyzyjna, kill criteria, "
+               "oś czasu katalizatorów.")
 
     dec_store = wl.setdefault("decision", {})
     user = dec_store.get(ticker, {})

@@ -393,7 +393,7 @@ def _render_dividend(ticker: str, row: dict, hist: dict):
 
 
 def render(ticker: str, row: dict, notes: str | None = None):
-    st.subheader("📊 Financial Charts")
+    st.subheader(f"📊 Financial Charts — {ticker} — {row.get('name', ticker)}")
     st.caption("Wykresy finansowe z danych Yahoo Finance. ~5 lat historii + "
                "prognoza analityków na 2 kolejne lata dla przychodów i EPS "
                "(darmowe dane nie sięgają dalej). Dywidendy i P/E — dłużej. "

@@ -116,7 +116,7 @@ def yt_videos(ticker: str, name: str, market: str):
         return []
 
 
-def render_pwpa(pick: str):
+def render_pwpa(pick: str, label: str):
     """Blok rekomendacji z raportow GPW PWPA (cena docelowa + powody + zrodlo)."""
     try:
         reps = pwpa_reports(pick)
@@ -127,8 +127,8 @@ def render_pwpa(pick: str):
                    "(brak raportów analitycznych w tym źródle).")
         return
 
-    with st.expander(f"📄 Rekomendacje analityków — GPW PWPA ({len(reps)} raporty)",
-                     expanded=True):
+    with st.expander(f"📄 Rekomendacje analityków — GPW PWPA — {label} "
+                     f"({len(reps)} raporty)", expanded=True):
         for r in reps:
             st.markdown(f"**{r['date']}** · {r['type']} · {r['firm']} — "
                         f"[źródło (PDF)]({r['pdf_url']})")
@@ -183,6 +183,12 @@ def save_wl():
 
 def fmt_pct(x):
     return "—" if x is None else f"{x*100:.1f}%"
+
+
+def co_label(ticker: str, row: dict) -> str:
+    """'TICKER — Nazwa spolki', do wyswietlenia przy kazdym module analizy."""
+    name = row.get("name") or config.NAMES.get(ticker, ticker)
+    return f"{ticker} — {name}"
 
 
 # ---------------- Sidebar ----------------
@@ -561,6 +567,7 @@ if choices:
     pick = st.selectbox("Wybierz spolke", choices, index=default_idx,
                         format_func=lambda t: f"{t} — {config.NAMES.get(t, view.set_index('ticker').loc[t, 'name'])}")
     row = df[df["ticker"] == pick].iloc[0].to_dict()
+    st.info(f"📌 Analizowana spółka: **{co_label(pick, row)}**")
 
     # --- przypisanie spolki do list obserwacyjnych ---
     on_lists = [n for n, tks in wl["lists"].items() if pick in tks]
@@ -638,12 +645,12 @@ if choices:
 
     # --- Rekomendacje analitykow z raportow GPW PWPA (tylko GPW) ---
     if pick.endswith(".WA"):
-        render_pwpa(pick)
+        render_pwpa(pick, co_label(pick, row))
 
     left, right = st.columns(2)
 
     with left:
-        st.subheader("Rozbicie ilosciowe")
+        st.subheader(f"Rozbicie ilosciowe — {co_label(pick, row)}")
         subs = row.get("subscores") or {}
         srows = []
         for m, label in METRIC_LABELS.items():
@@ -655,7 +662,7 @@ if choices:
                    f"Kapitalizacja: {row.get('market_cap') or '—'} {row.get('currency') or ''}")
 
     with right:
-        st.subheader(f"Ocena jakosciowa ({gurus.get(guru_key)['name']})")
+        st.subheader(f"Ocena jakosciowa ({gurus.get(guru_key)['name']}) — {co_label(pick, row)}")
         ai = ai_research.load_cached(pick, guru_key)
         if st.button("🤖 Uruchom research AI dla tej spolki",
                      disabled=not ai_research.available()):
@@ -703,7 +710,7 @@ if choices:
 
     # ---------------- Deep research ----------------
     st.divider()
-    st.subheader("🔎 Deep research: sentyment rynku + YouTube + relacje inwestorskie")
+    st.subheader(f"🔎 Deep research: sentyment rynku + YouTube + relacje inwestorskie — {co_label(pick, row)}")
     st.caption(f"Analiza ostatnich {research_deep.MONTHS_BACK} miesiecy: artykuly "
                "(Google Search), filmy z YouTube (tytuly + transkrypty, gdy dostepne) "
                "i raporty z dzialu IR spolki. Sentyment NIE wplywa na Wynik strategii. "
@@ -759,7 +766,7 @@ if choices:
 
     # ---------------- Analiza wideo (AI agent oglada film) ----------------
     st.divider()
-    st.subheader("🎧 Analiza wideo (AI)")
+    st.subheader(f"🎧 Analiza wideo (AI) — {co_label(pick, row)}")
     st.caption("Agent najpierw próbuje napisów; gdy ich brak, wysyła film do "
                "Gemini, który **ogląda/odsłuchuje go po stronie Google** "
                "(działa też z chmury — nasz serwer nie pobiera nic z YouTube).")
