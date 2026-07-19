@@ -251,6 +251,39 @@ samego źródła (yfinance).
 
 ---
 
+## Panel decyzyjny (scenariusze 3Y, bramka, kill criteria)
+
+W sekcji analizy spółki (za Financial Charts) moduł **🎯 Panel decyzyjny** —
+natywna wersja dashboardu decyzyjnego w stylu Fisher/Lynch, dla każdej spółki:
+
+- **Scenariusze 3-letnie** low/base/high: cena docelowa + prawdopodobieństwo
+  (suwaki; base dopełnia się do 100%). Na żywo liczone: **wartość oczekiwana
+  (EV)**, **CAGR vs hurdle rate 12–15%** i **asymetria zysk:strata (wymagane
+  ≥ 2:1)** — z kolorowym pass/fail.
+- **Bramka decyzyjna** — 6 warunków (wynik Fishera, variant perception,
+  asymetria+EV, CAGR base case, katalizator 12–18M, płynność). Warunki
+  policzalne oceniają się same z danych i suwaków; jakościowe ocenia AI,
+  a każdy można nadpisać ręcznie.
+- **Werdykt bramki** — reguła łącząca matematykę i jakość: `POZYCJA OK` /
+  `OK Z ZASTRZEŻENIAMI — pół pozycji` / `SPEKULACJA ≤2% portfela` /
+  `NIE KUPUJ`; złamane kill criteria wymuszają `WYJDŹ / NIE KUPUJ`.
+- **Kill criteria** — edytowalna checklista sygnałów wyjścia z licznikiem
+  „N/M złamanych"; zaznaczenia zapisują się od razu (to monitoring pozycji).
+- **Oś czasu katalizatorów i ryzyk** + **licznik dni do raportu kwartalnego**.
+
+Bazę jakościową (ceny scenariuszy, opisy, oceny bramki, kill criteria, oś
+czasu) wypełnia **AI** (przycisk *🤖 Wygeneruj*, cache `data/decision_*.json`;
+kontekst: dane Yahoo + wcześniejszy research AI i deep research). Bez klucza
+API panel działa na **bazie mechanicznej** (base = konsensus analityków,
+high/low = widełki) — wszystko uzupełniasz ręcznie. Twoje edycje i stan
+checklisty zapisują się **per spółka trwale** w watchlists (GitHub Gist),
+przyciskiem *💾 Zapisz panel*; *↺ Przywróć bazę* usuwa nadpisania.
+
+Logika w [decision_panel.py](decision_panel.py) (funkcje czyste + UI),
+testy w `decision_test.py`.
+
+---
+
 ## Rekomendacje analityków GPW (PWPA)
 
 Dla spółek objętych **Giełdowym Programem Wsparcia Pokrycia Analitycznego**
@@ -354,6 +387,8 @@ fisher-dashboard/
 ├── financial_charts.py # sekcja "Financial Charts" (KPI + 15 wykresow + AI)
 ├── charts/           # modularne wykresy Plotly (helpers, data, *_chart.py)
 ├── research_deep.py  # deep research: sentyment + YouTube + IR (Gemini grounding)
+├── decision_panel.py # panel decyzyjny: scenariusze 3Y, bramka, kill criteria
+├── decision_test.py  # testy panelu decyzyjnego (czyste funkcje + AppTest)
 ├── universe.py       # pełna pula symboli Nasdaq+GPW (wyszukiwarka)
 ├── gpw_tickers.py    # lista spółek GPW (generowana)
 ├── watchlists.py     # listy obserwacyjne (GitHub Gist / plik lokalny)

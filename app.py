@@ -15,6 +15,7 @@ from streamlit_sortables import sort_items
 import ai_research
 import config
 import data_fetch
+import decision_panel
 import financial_charts
 import fisher_score
 import gpw_indices
@@ -695,6 +696,10 @@ if choices:
     # ---------------- Financial Charts ----------------
     st.divider()
     financial_charts.render(pick, row, notes=wl.get("notes", {}).get(pick))
+
+    # ---------------- Panel decyzyjny ----------------
+    st.divider()
+    decision_panel.render(pick, row, wl, save_wl)
 
     # ---------------- Deep research ----------------
     st.divider()
