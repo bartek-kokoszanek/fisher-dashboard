@@ -121,11 +121,21 @@ zapytań HTTP na spółkę, więc wątki dają ~7× przyspieszenie: S&P500 ≈ 3
 zamiast ~24 min). Liczbę wątków zmienisz zmienną `FETCH_WORKERS` (domyślnie 8;
 przy 8–16 Yahoo nie odrzuca zapytań — sprawdzone).
 
-**Motyw.** `.streamlit/config.toml` ustawia **tryb ciemny jako domyślny dla
-całej aplikacji** (`base = "dark"`) — jasny wariant jest w pełni zdefiniowany
-i zostaje dostępny w menu Streamlita (☰ → Settings → Choose app theme), gdyby
-ktoś chciał go włączyć ręcznie. Kolory dobrane tak, by czerwień/zieleń
+**Motyw.** `.streamlit/config.toml` definiuje **wyłącznie tryb ciemny** —
+cała aplikacja jest ciemna dla każdego odwiedzającego, niezależnie od
+preferencji jego systemu/przeglądarki. Kolory dobrane tak, by czerwień/zieleń
 znaczyły wyłącznie spadek/wzrost — nigdzie indziej w interfejsie nie występują.
+
+> ⚠️ Streamlit potrafi definiować osobne palety `[theme.light]`/`[theme.dark]`
+> i przełączać się między nimi automatycznie wg `prefers-color-scheme`
+> przeglądarki — ale wtedy **zawsze** wygrywa preferencja systemu, `base`
+> na to nie ma wpływu (sprawdzone w źródle Streamlita,
+> `runtime/app_session.py`, i empirycznie: `base = "dark"` przy zdefiniowanych
+> obu wariantach dawał jasną aplikację na jasnym systemie). Jedyny sposób na
+> tryb ciemny **całej** aplikacji dla każdego to jeden, wspólny motyw — stąd
+> `[theme.light]` w tym repo nie istnieje. Kto chce jasnego Streamlita, może
+> ręcznie przełączyć się w menu ☰ → Settings → Choose app theme, ale dostanie
+> wtedy domyślną (nie naszą) paletę Streamlita.
 
 Gdyby `.venv` nie działało, odtwórz je:
 

@@ -8,13 +8,30 @@
 # nienacechowany akcent: jeden blekit, ten sam co seria "Przychody"
 # na wykresach (charts/helpers.py) -> w calej aplikacji jest JEDEN blekit.
 #
-# Motyw jasny i ciemny sa zdefiniowane rownolegle. base="dark" wymusza
-# ciemny jako domyslny dla calej aplikacji (niezaleznie od preferencji
-# systemu/przegladarki) — jasny zostaje dostepny w menu Streamlita
-# (☰ -> Settings -> Choose app theme), jesli ktos go recznie wybierze.
+# TYLKO CIEMNY, celowo bez [theme.light]/[theme.dark]. Zweryfikowane w
+# zrodle Streamlita (runtime/app_session.py, _populate_theme_msg): gdy oba
+# warianty sa zdefiniowane, frontend ZAWSZE przelacza wg prefers-color-scheme
+# przegladarki — "base" wtedy nie ma znaczenia (sprawdzone tez empirycznie:
+# base="dark" + oba warianty = aplikacja i tak jasna przy jasnym systemie).
+# "base" realnie dziala tylko jako fallback dla WLASNOSCI, ktorych nie
+# ustawiono w [theme] — a to dziala rowniez przy jednym, wspolnym motywie.
+# Wiec jedyny sposob na naprawde caly-czas-ciemna aplikacje (dla kazdego
+# odwiedzajacego, niezaleznie od jego systemu) to jeden motyw, bez wariantu
+# jasnego do przelaczenia.
 
 [theme]
 base = "dark"
+primaryColor = "#5b8def"            # jasny blekit — kontrast na ciemnym tle
+backgroundColor = "#0f1218"         # off-black, nigdy #000000
+secondaryBackgroundColor = "#161a23"
+textColor = "#e5e9f0"
+borderColor = "#272d3a"
+linkColor = "#5b8def"
+dataframeHeaderBackgroundColor = "#161a23"
+dataframeBorderColor = "#272d3a"    # hairline zamiast pudelek (gestosc 8/10)
+greenColor = "#22c55e"              # znaczenie: wzrost
+redColor = "#f87171"                # znaczenie: spadek
+blueColor = "#5b8def"
 font = "sans-serif"
 headingFont = "sans-serif"
 codeFont = "monospace"
@@ -33,38 +50,6 @@ chartCategoricalColors = [
   "#ea580c", "#0891b2", "#be123c", "#64748b",
 ]
 
-# ---------------------------------------------------------------- jasny ---
-[theme.light]
-primaryColor = "#2f6fdb"            # akcent UI (bialy tekst na nim: kontrast ~4.6:1, AA)
-backgroundColor = "#fcfcfd"         # off-white, nigdy czysta biel
-secondaryBackgroundColor = "#f1f3f7"
-textColor = "#111827"
-borderColor = "#e2e6ee"
-linkColor = "#2f6fdb"
-dataframeHeaderBackgroundColor = "#f1f3f7"
-dataframeBorderColor = "#e2e6ee"    # hairline zamiast pudelek (gestosc 8/10)
-greenColor = "#16a34a"              # znaczenie: wzrost
-redColor = "#dc2626"                # znaczenie: spadek
-blueColor = "#2f6fdb"
-
-[theme.light.sidebar]
-backgroundColor = "#f6f7f9"         # panel sterowania odrozniony tintem, nie inna paleta
-borderColor = "#e2e6ee"
-
-# --------------------------------------------------------------- ciemny ---
-[theme.dark]
-primaryColor = "#5b8def"            # jasniejszy wariant tego samego blekitu (kontrast na ciemnym tle)
-backgroundColor = "#0f1218"         # off-black, nigdy #000000
-secondaryBackgroundColor = "#161a23"
-textColor = "#e5e9f0"
-borderColor = "#272d3a"
-linkColor = "#5b8def"
-dataframeHeaderBackgroundColor = "#161a23"
-dataframeBorderColor = "#272d3a"
-greenColor = "#22c55e"
-redColor = "#f87171"
-blueColor = "#5b8def"
-
-[theme.dark.sidebar]
-backgroundColor = "#0c0f15"
+[theme.sidebar]
+backgroundColor = "#0c0f15"         # panel sterowania odrozniony tintem, nie inna paleta
 borderColor = "#272d3a"
