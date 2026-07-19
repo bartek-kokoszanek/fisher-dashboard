@@ -1,0 +1,67 @@
+# Motyw aplikacji — WYLACZNIE oficjalny theming Streamlita (bez hackow CSS).
+#
+# Zasada nadrzedna: czerwien i zielen sa ZAREZERWOWANE dla znaczenia
+# (spadek / wzrost). Domyslny primaryColor Streamlita to czerwien #FF4B4B,
+# przez co pasek "Wynik" swiecil na czerwono przy DOBRYM wyniku, a kafelki
+# i przyciski konkurowaly z kolumnami "Do celu %" / "EPS vs konsensus".
+# Dlatego chrome UI (przyciski, paski, focus, linki) dostaje osobny,
+# nienacechowany akcent: jeden blekit, ten sam co seria "Przychody"
+# na wykresach (charts/helpers.py) -> w calej aplikacji jest JEDEN blekit.
+#
+# Motyw jasny i ciemny sa zdefiniowane rownolegle; bez ustawienia "base"
+# Streamlit respektuje preferencje systemu/przegladarki uzytkownika.
+
+[theme]
+font = "sans-serif"
+headingFont = "sans-serif"
+codeFont = "monospace"
+baseFontSize = 15          # gestosc 8/10: ciasniej niz domyslne 16, wciaz czytelnie
+baseRadius = "small"       # JEDEN system promieni w calej aplikacji...
+buttonRadius = "small"     # ...wlacznie z przyciskami (bez pigulek obok kwadratow)
+metricValueFontSize = "1.75rem"
+showWidgetBorder = true    # brak kart -> to obramowania definiuja pola formularzy
+showSidebarBorder = true
+
+# Paleta wykresow (Plotly/Altair) tam, gdzie kolor nie jest podany wprost.
+# Kolejnosc odpowiada charts/helpers.py, zeby wykresy i chrome mowily
+# tym samym jezykiem kolorow.
+chartCategoricalColors = [
+  "#2f6fdb", "#16a34a", "#7c3aed", "#0d9488",
+  "#ea580c", "#0891b2", "#be123c", "#64748b",
+]
+
+# ---------------------------------------------------------------- jasny ---
+[theme.light]
+primaryColor = "#2f6fdb"            # akcent UI (bialy tekst na nim: kontrast ~4.6:1, AA)
+backgroundColor = "#fcfcfd"         # off-white, nigdy czysta biel
+secondaryBackgroundColor = "#f1f3f7"
+textColor = "#111827"
+borderColor = "#e2e6ee"
+linkColor = "#2f6fdb"
+dataframeHeaderBackgroundColor = "#f1f3f7"
+dataframeBorderColor = "#e2e6ee"    # hairline zamiast pudelek (gestosc 8/10)
+greenColor = "#16a34a"              # znaczenie: wzrost
+redColor = "#dc2626"                # znaczenie: spadek
+blueColor = "#2f6fdb"
+
+[theme.light.sidebar]
+backgroundColor = "#f6f7f9"         # panel sterowania odrozniony tintem, nie inna paleta
+borderColor = "#e2e6ee"
+
+# --------------------------------------------------------------- ciemny ---
+[theme.dark]
+primaryColor = "#5b8def"            # jasniejszy wariant tego samego blekitu (kontrast na ciemnym tle)
+backgroundColor = "#0f1218"         # off-black, nigdy #000000
+secondaryBackgroundColor = "#161a23"
+textColor = "#e5e9f0"
+borderColor = "#272d3a"
+linkColor = "#5b8def"
+dataframeHeaderBackgroundColor = "#161a23"
+dataframeBorderColor = "#272d3a"
+greenColor = "#22c55e"
+redColor = "#f87171"
+blueColor = "#5b8def"
+
+[theme.dark.sidebar]
+backgroundColor = "#0c0f15"
+borderColor = "#272d3a"
