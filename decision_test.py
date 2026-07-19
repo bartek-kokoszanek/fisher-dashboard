@@ -134,26 +134,71 @@ if FAILS:
     raise SystemExit(1)
 print("Wszystkie testy czystych funkcji przeszly.")
 
-# ---------------- headless render calej aplikacji ----------------
-print("\n=== AppTest: headless render app.py (moze potrwac) ===")
+# ---------------- headless render panelu w izolacji (bez sieci) ----------------
+print("\n=== AppTest: panel decyzyjny w izolacji (syntetyczny wiersz) ===")
 from streamlit.testing.v1 import AppTest
 
-at = AppTest.from_file("app.py", default_timeout=1200)
+
+def _panel_app():
+    """Mini-aplikacja: sam panel decyzyjny na sztucznych danych (bez Yahoo)."""
+    import streamlit as st
+    import decision_panel
+    st.set_page_config(layout="wide")
+    row = {"ticker": "TST", "name": "Test SA", "market": "GPW",
+           "currency": "PLN", "price": 75.0, "market_cap": 40e9,
+           "trailing_pe": 18.0, "debt_to_equity": 0.5, "sector": "Tech",
+           "target_mean": 105.0, "target_upside": 0.4, "analyst_count": 5,
+           "combined": 70.0, "score": 70.0, "quality": None,
+           "next_earnings_date": "2099-08-06"}
+    wl = st.session_state.setdefault("wl", {"lists": {}, "notes": {}})
+    decision_panel.render("TST", row, wl, lambda: None)
+
+
+at = AppTest.from_function(_panel_app, default_timeout=120)
 at.run()
 if at.exception:
     for e in at.exception:
         print("EXC:", e.value)
     raise SystemExit(1)
 subheaders = [h.value for h in at.subheader]
-found = any("Panel decyzyjny" in s for s in subheaders)
-print("Podnaglowki:", [s for s in subheaders if "decyzyjny" in s.lower()] or subheaders[:8])
-check("sekcja 'Panel decyzyjny' obecna", found)
-check("sa suwaki scenariuszy", any("prob" in (s.key or "") for s in at.slider),
-      f"slidery={[s.key for s in at.slider][:6]}")
-check("sa checkboxy/przyciski panelu",
-      any("dp_" in (b.key or "") for b in at.button))
+check("sekcja 'Panel decyzyjny' obecna",
+      any("Panel decyzyjny" in s for s in subheaders), str(subheaders))
+sliders = {s.key: s for s in at.slider}
+check("suwaki low/high obecne",
+      "dp_TST_0_prob_low" in sliders and "dp_TST_0_prob_high" in sliders,
+      f"slidery={list(sliders)}")
+check("przyciski panelu obecne",
+      any("dp_" in (b.key or "") for b in at.button),
+      f"buttons={[b.key for b in at.button][:6]}")
+check("metryki EV/CAGR/asymetria obecne",
+      any("oczekiwana" in (m.label or "") for m in at.metric)
+      and any("Asymetria" in (m.label or "") for m in at.metric),
+      f"metryki={[m.label for m in at.metric]}")
+
+# interakcja: ruch suwaka -> przeliczenie bez wyjatku
+at.slider(key="dp_TST_0_prob_low").set_value(50)
+at.run()
+check("ruch suwaka nie wywala renderu", not at.exception)
+
+# --- pelna aplikacja: regresja (pomijana, gdy brak dostepu do Yahoo) ---
+print("\n=== AppTest: pelna aplikacja app.py (moze potrwac) ===")
+at2 = AppTest.from_file("app.py", default_timeout=1200)
+at2.run()
+if at2.exception:
+    for e in at2.exception:
+        print("EXC:", e.value)
+    raise SystemExit(1)
+subs2 = [h.value for h in at2.subheader]
+if any("Panel decyzyjny" in s for s in subs2):
+    print("Pelna aplikacja: panel decyzyjny wyrenderowany.")
+elif not at2.dataframe or getattr(at2.dataframe[0].value, "empty", True):
+    print("POMINIETO asercje panelu: ranking pusty (brak dostepu do Yahoo "
+          "w tym srodowisku) — sekcja analizy spolki sie nie renderuje.")
+else:
+    check("panel decyzyjny w pelnej aplikacji", False, str(subs2))
+
 print()
 if FAILS:
     print(f"BLEDY: {len(FAILS)} -> {FAILS}")
     raise SystemExit(1)
-print("Render OK — panel decyzyjny obecny w aplikacji.")
+print("Render OK — panel decyzyjny dziala.")
