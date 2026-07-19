@@ -121,6 +121,12 @@ zapytań HTTP na spółkę, więc wątki dają ~7× przyspieszenie: S&P500 ≈ 3
 zamiast ~24 min). Liczbę wątków zmienisz zmienną `FETCH_WORKERS` (domyślnie 8;
 przy 8–16 Yahoo nie odrzuca zapytań — sprawdzone).
 
+**Motyw.** `.streamlit/config.toml` ustawia **tryb ciemny jako domyślny dla
+całej aplikacji** (`base = "dark"`) — jasny wariant jest w pełni zdefiniowany
+i zostaje dostępny w menu Streamlita (☰ → Settings → Choose app theme), gdyby
+ktoś chciał go włączyć ręcznie. Kolory dobrane tak, by czerwień/zieleń
+znaczyły wyłącznie spadek/wzrost — nigdzie indziej w interfejsie nie występują.
+
 Gdyby `.venv` nie działało, odtwórz je:
 
 ```powershell
@@ -349,6 +355,22 @@ w tym samym miejscu co listy (Gist/plik), więc przeżywają restart.
 > ⚠️ Przeciąganie nagłówków **wewnątrz** tabeli Streamlit pokazuje zmianę tylko
 > wizualnie — komponent nie zgłasza nowej kolejności do aplikacji, więc nie da
 > się jej zapamiętać. Trwałą kolejność ustawia się kafelkami (wyżej).
+
+**Filtr sygnału.** W tym samym expanderze wybierasz, które sygnały
+(🟢 KUPUJ / 🟢 AKUMULUJ / 🟡 TRZYMAJ / 🔴 SPRZEDAJ-UNIKAJ / ⚪ brak danych) mają
+zostać w tabeli — reszta wierszy znika. Filtr obejmuje też eksport CSV i listę
+wyboru w sekcji „Analiza spółki" (to ta sama `view`, którą zawężają już
+Segment i Min. pokrycie). Wybór jest zapamiętywany.
+
+**Szerokość kolumn.** Zagnieżdżony expander **📏 Szerokość kolumn** pozwala
+ustawić szerokość (w px) każdej widocznej kolumny; `0` = automatycznie.
+Ustawienie jest trwałe.
+
+> ⚠️ Przeciąganie krawędzi nagłówka **wewnątrz** tabeli (żeby ręcznie
+> zwęzić/rozszerzyć kolumnę) to — tak jak reorder nagłówków wyżej — zmiana
+> czysto wizualna po stronie komponentu; Streamlit nie zgłasza jej do
+> aplikacji, więc nie da się jej zapamiętać. Stąd osobny, liczbowy edytor
+> szerokości zamiast pamiętania samego przeciągnięcia.
 
 ---
 
