@@ -55,6 +55,13 @@ def main() -> int:
         return 1
     print("[OK ] Rynek: deep research obecny")
 
+    dec = " ".join(str(s.value) for s in at.tabs[3].subheader) + \
+          " ".join(str(m.value) for m in at.tabs[3].markdown)
+    if "Panel decyzyjny" not in dec:
+        print("BLAD: zakladka Decyzja nie zawiera panelu decyzyjnego")
+        return 1
+    print("[OK ] Decyzja: panel decyzyjny obecny")
+
     rc = test_financial_charts_api()
     if rc:
         return rc

@@ -23,6 +23,7 @@ import gurus
 import pwpa
 import pwpa_targets
 import research_deep
+import sections.decision
 import sections.fundamentals
 import sections.market
 import sections.overview
@@ -915,50 +916,9 @@ if choices:
     with tab_market:
         sections.market.render(pick, row, co_label(pick, row), yt_videos)
 
-    left, right = st.columns(2)
-
-    with right:
-        st.subheader(f"Ocena jakosciowa ({gurus.get(guru_key)['name']}) — {co_label(pick, row)}")
-        ai = ai_research.load_cached(pick, guru_key)
-        if st.button("🤖 Uruchom research AI dla tej spolki",
-                     disabled=not ai_research.available()):
-            with st.spinner(f"Model ocenia przez pryzmat: {gurus.get(guru_key)['name']}..."):
-                try:
-                    ai = ai_research.research(pick, row.get("name", pick),
-                                              row.get("market", ""),
-                                              guru=guru_key, force=True)
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Blad research: {e}")
-        if ai:
-            for k, label in ai_research.DIMENSIONS.items():
-                sc = ai.get("scores", {}).get(k)
-                note = ai.get("notes", {}).get(k, "")
-                st.write(f"**{label.split('(')[0].strip()}** — {sc}/100")
-                if note:
-                    st.caption(note)
-            st.info(ai.get("summary", ""))
-            st.caption(f"Model: {ai.get('model')} · pewnosc: {ai.get('confidence')}% "
-                       f"· wygenerowano {fmt_dt(ai.get('researched_at'))} "
-                       "(wiedza modelu, bez wyszukiwarki)")
-        else:
-            st.caption("Brak researchu AI dla tej strategii. Uruchom przyciskiem powyzej.")
-
-    # --- Najwieksze zalety / wady (z researchu AI) ---
-    if ai and (ai.get("strengths") or ai.get("weaknesses")):
-        zc, wc = st.columns(2)
-        with zc:
-            st.subheader("✅ Najwieksze zalety")
-            for s in ai.get("strengths", []):
-                st.markdown(f"- {s}")
-        with wc:
-            st.subheader("⚠️ Najwieksze wady i ryzyka")
-            for w in ai.get("weaknesses", []):
-                st.markdown(f"- {w}")
-
-    # ---------------- Panel decyzyjny ----------------
-    st.divider()
-    decision_panel.render(pick, row, wl, save_wl)
+    with tab_dec:
+        sections.decision.render(pick, row, wl, save_wl, guru_key,
+                                 co_label(pick, row))
 else:
     st.info("Brak spolek spelniajacych filtry. Zluzuj min. pokrycie lub odswiez dane.")
 
