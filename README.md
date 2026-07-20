@@ -331,7 +331,7 @@ testy w `decision_test.py`.
 ## Rekomendacje analityków GPW (PWPA)
 
 Dla spółek objętych **Giełdowym Programem Wsparcia Pokrycia Analitycznego**
-([gpw.pl/gpwpa](https://www.gpw.pl/gpwpa)) w analizie spółki pojawia się blok
+([gpw.pl/gpwpa](https://www.gpw.pl/gpwpa)) w zakładce **💰 Wycena** pojawia się blok
 z listą raportów maklerskich (data, dom maklerski, typ, **link do źródłowego PDF**).
 Przycisk *🎯 Wyciągnij cenę docelową* czyta najnowszy raport (pypdf) i AI wyciąga
 z niego **cenę docelową, rekomendację i uzasadnienie** — wszystko ze wskazaniem źródła.
