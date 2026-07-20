@@ -115,6 +115,30 @@ def test_pasek_braki() -> int:
         print("BLAD: pasek nie uzywa '—' jako wartosci pustej")
         return 1
     print("[OK ] pasek: brakujace wartosci obsluzone")
+
+    def _pusty_app():
+        import streamlit as st
+        import sections.overview as ov
+        nan = float("nan")
+        row = {"combined": None, "price": None, "coverage": 0,
+               "next_earnings_date": nan, "last_dividend_value": None,
+               "ex_dividend_date": nan, "currency": None, "fetched_at": None}
+        ov.render("TST_BRAKI", row, {})
+
+    at = AppTest.from_function(_pusty_app, default_timeout=60)
+    at.run()
+    if at.exception:
+        print("BLAD: pasek wywala wyjatek na wierszu z NaN zamiast None:")
+        for e in at.exception:
+            print("   ", str(e.value)[:300])
+        return 1
+    zanieczyszczone = [(m.label, m.value, m.delta) for m in at.metric
+                        if "nan" in str(m.value).lower()
+                        or "nan" in str(m.delta).lower()]
+    if zanieczyszczone:
+        print(f"BLAD: pasek pokazuje 'nan' zamiast '—': {zanieczyszczone}")
+        return 1
+    print("[OK ] pasek: wiersz z NaN (next_earnings_date/ex_dividend_date) bez 'nan' w UI")
     return 0
 
 
