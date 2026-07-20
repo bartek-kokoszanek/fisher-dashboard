@@ -48,6 +48,13 @@ def main() -> int:
         return 1
     print("[OK ] Wycena: dywidenda obecna")
 
+    mkt = " ".join(str(m.value) for m in at.tabs[2].markdown) + \
+          " ".join(str(s.value) for s in at.tabs[2].subheader)
+    if "Deep research" not in mkt:
+        print("BLAD: zakladka Rynek nie zawiera deep researchu")
+        return 1
+    print("[OK ] Rynek: deep research obecny")
+
     rc = test_financial_charts_api()
     if rc:
         return rc
