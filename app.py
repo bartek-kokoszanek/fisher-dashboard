@@ -25,6 +25,7 @@ import pwpa_targets
 import research_deep
 import sections.fundamentals
 import sections.overview
+import sections.valuation
 import universe
 import watchlists
 import yt_transcribe
@@ -902,12 +903,13 @@ if choices:
                 st.caption("Bez GITHUB_TOKEN+GIST_ID notatki sa lokalne i znikna "
                            "przy restarcie aplikacji.")
 
-    # --- Rekomendacje analitykow z raportow GPW PWPA (tylko GPW) ---
-    if pick.endswith(".WA"):
-        render_pwpa(pick, co_label(pick, row))
-
     with tab_fund:
         sections.fundamentals.render(pick, row, _hist_row, METRIC_LABELS, fmt_pct)
+
+    with tab_val:
+        sections.valuation.render(pick, row, _hist_row,
+                                  wl.get("notes", {}).get(pick),
+                                  render_pwpa, co_label(pick, row))
 
     left, right = st.columns(2)
 
@@ -949,12 +951,6 @@ if choices:
             st.subheader("⚠️ Najwieksze wady i ryzyka")
             for w in ai.get("weaknesses", []):
                 st.markdown(f"- {w}")
-
-    # ---------------- Financial Charts ----------------
-    st.divider()
-    financial_charts.render_ai_interpretation(pick, row, _hist_row,
-                                              wl.get("notes", {}).get(pick))
-    financial_charts.render_dividend(pick, row, _hist_row)
 
     # ---------------- Panel decyzyjny ----------------
     st.divider()

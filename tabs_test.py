@@ -42,6 +42,12 @@ def main() -> int:
         return 1
     print("[OK ] Fundamenty: kurs akcji obecny")
 
+    val = " ".join(str(m.value) for m in at.tabs[1].markdown)
+    if "Dywidenda" not in val:
+        print("BLAD: zakladka Wycena nie zawiera bloku dywidendy")
+        return 1
+    print("[OK ] Wycena: dywidenda obecna")
+
     rc = test_financial_charts_api()
     if rc:
         return rc
