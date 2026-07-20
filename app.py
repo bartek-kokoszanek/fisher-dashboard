@@ -26,6 +26,7 @@ import research_deep
 import sections.decision
 import sections.fundamentals
 import sections.market
+import sections.notes
 import sections.overview
 import sections.valuation
 import universe
@@ -878,33 +879,6 @@ if choices:
     tab_fund, tab_val, tab_market, tab_dec, tab_notes = st.tabs(
         ["📊 Fundamenty", "💰 Wycena", "🌐 Rynek", "🎯 Decyzja", "📝 Notatki"])
 
-    # --- Moje notatki per spolka (prywatne, zapis w Gist) ---
-    notes = wl.setdefault("notes", {})
-    _has_note = bool(notes.get(pick, "").strip())
-    with st.expander("📝 Moje notatki / wnioski z analiz" + (" ✓" if _has_note else ""),
-                     expanded=_has_note):
-        txt = st.text_area(
-            "Notatki", value=notes.get(pick, ""), height=160,
-            key=f"note_{pick}", label_visibility="collapsed",
-            placeholder="Twoje wlasne wnioski, tezy, wyceny, cytaty z analiz, "
-                        "ktore czytasz gdzie indziej. Uzytek osobisty.")
-        nc1, nc2 = st.columns([1, 4])
-        with nc1:
-            if st.button("💾 Zapisz notatke", key=f"savenote_{pick}"):
-                if txt.strip():
-                    notes[pick] = txt.strip()
-                else:
-                    notes.pop(pick, None)
-                save_wl()
-                st.success("Zapisano.")
-                st.rerun()
-        with nc2:
-            if watchlists.backend() == "gist":
-                st.caption("Zapis: GitHub Gist ✅ (trwaly, prywatny).")
-            else:
-                st.caption("Bez GITHUB_TOKEN+GIST_ID notatki sa lokalne i znikna "
-                           "przy restarcie aplikacji.")
-
     with tab_fund:
         sections.fundamentals.render(pick, row, _hist_row, METRIC_LABELS, fmt_pct)
 
@@ -919,6 +893,9 @@ if choices:
     with tab_dec:
         sections.decision.render(pick, row, wl, save_wl, guru_key,
                                  co_label(pick, row))
+
+    with tab_notes:
+        sections.notes.render(pick, wl, save_wl)
 else:
     st.info("Brak spolek spelniajacych filtry. Zluzuj min. pokrycie lub odswiez dane.")
 

@@ -62,6 +62,21 @@ def main() -> int:
         return 1
     print("[OK ] Decyzja: panel decyzyjny obecny")
 
+    notes_txt = " ".join(str(m.value) for m in at.tabs[4].markdown) + \
+                " ".join(str(c.value) for c in at.tabs[4].caption)
+    if "notatk" not in notes_txt.lower():
+        print("BLAD: zakladka Notatki jest pusta")
+        return 1
+    print("[OK ] Notatki: sekcja obecna")
+
+    # Prog ostrzegawczy z zapasem, zeby test nie pekal przy kazdej drobnej
+    # zmianie w app.py.
+    dlugosc = len(open("app.py", encoding="utf-8").read().splitlines())
+    if dlugosc > 950:
+        print(f"BLAD: app.py ma {dlugosc} linii, prog to 950")
+        return 1
+    print(f"[OK ] app.py: {dlugosc} linii")
+
     rc = test_financial_charts_api()
     if rc:
         return rc
@@ -71,7 +86,7 @@ def main() -> int:
 def test_financial_charts_api() -> int:
     import financial_charts as fc
     wymagane = ("render_ai_interpretation", "render_price_chart",
-                "render_dividend", "render_kpis", "render_charts", "render")
+                "render_dividend", "render_kpis", "render_charts")
     brak = [f for f in wymagane if not callable(getattr(fc, f, None))]
     if brak:
         print(f"BLAD: brak funkcji w financial_charts: {brak}")

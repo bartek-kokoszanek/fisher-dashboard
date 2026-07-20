@@ -522,28 +522,3 @@ def render_charts(hist: dict, row: dict) -> None:
         _card(c1, *specs[i])
         if i + 1 < len(specs):
             _card(c2, *specs[i + 1])
-
-
-def render(ticker: str, row: dict, notes: str | None = None) -> None:
-    """Cala sekcja w dotychczasowej kolejnosci (zgodnosc wstecz).
-
-    Po przepieciu zakladek w Task 3-4 ta funkcja przestaje byc uzywana
-    przez app.py — zostaje, bo nie ma powodu jej usuwac w tym kroku.
-    """
-    st.subheader(f"📊 Financial Charts — {ticker} — {row.get('name', ticker)}")
-    st.caption("Wykresy finansowe z danych Yahoo Finance. ~5 lat historii + "
-               "prognoza analityków na 2 kolejne lata dla przychodów i EPS "
-               "(darmowe dane nie sięgają dalej). Dywidendy i P/E — dłużej. "
-               "Brakujące dane pokazywane są jako komunikat, nie błąd.")
-
-    with st.spinner("Ładuję historię finansową..."):
-        hist = _hist(ticker)
-
-    render_ai_interpretation(ticker, row, hist, notes)
-    st.divider()
-    render_price_chart(ticker, row, hist)
-    st.divider()
-    render_dividend(ticker, row, hist)
-    render_kpis(hist, row)
-    st.divider()
-    render_charts(hist, row)
