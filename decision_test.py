@@ -85,9 +85,12 @@ check("math fail -> NIE KUPUJ",
 # ---------------- mechanical_baseline ----------------
 mb = dp.mechanical_baseline({"price": 100, "target_mean": 150,
                              "next_earnings_date": "2026-08-06"})
-check("base z konsensusu", mb["scenarios"]["base"]["price"] == 150)
-check("high = base*1.6", mb["scenarios"]["high"]["price"] == 240)
-check("low = max(0.3*price, base*0.45)", mb["scenarios"]["low"]["price"] == 67.5)
+# target_mean to konsensus 12-miesieczny; baza scenariuszy jest 3-letnia, wiec
+# 1-roczna stopa (150/100-1=50%) jest kapitalizowana na 3 lata: 100*1.5**3=337.5
+check("base = konsensus skapitalizowany na 3 lata", mb["scenarios"]["base"]["price"] == 337.5)
+check("high = base*1.6", mb["scenarios"]["high"]["price"] == 540.0)
+check("low = max(0.3*price, base*0.45), capped na price",
+      mb["scenarios"]["low"]["price"] == 100.0)  # 0.45*337.5=151.9 > price -> capped
 check("timeline z data raportu", mb["timeline"][0]["date"] == "2026-08-06")
 mb2 = dp.mechanical_baseline({"price": None, "target_mean": None})
 check("brak danych -> puste scenariusze", mb2["scenarios"] == {})
@@ -120,7 +123,8 @@ check("timeline: zly typ -> minus, pusty tytul odfiltrowany",
 
 # calkowicie zepsuty JSON -> fallback mechaniczny
 v2 = dp._validate({}, {"price": 75, "target_mean": 100})
-check("pusty JSON -> scenariusze z fallbacku", v2["scenarios"]["base"]["price"] == 100)
+# konsensus 100/75-1=33.3%/rok skapitalizowany na 3 lata: 75*(100/75)**3=177.78
+check("pusty JSON -> scenariusze z fallbacku", v2["scenarios"]["base"]["price"] == 177.78)
 
 # ---------------- _merge ----------------
 mrg = dp._merge({"scenarios": {"low": 1}, "kill": ["a"], "timeline": [1]},
