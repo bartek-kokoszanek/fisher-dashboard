@@ -498,7 +498,24 @@ def render(ticker: str, row: dict, hist: dict, notes: str | None,
 
 - [ ] **Krok 4: Wepnij w `app.py`**
 
-Usuń z `app.py` blok `if pick.endswith(".WA"): render_pwpa(...)` (linie ~920-922) oraz sekcję Financial Charts (linie ~977-979: komentarz, `st.divider()` i `financial_charts.render(...)`). Dodaj import `import sections.valuation` i wpięcie:
+**UWAGA — poprawka odkryta przy wykonaniu Task 3:** pierwotny plan zakładał,
+że do Task 4 w `app.py` przetrwa jedno wywołanie `financial_charts.render(...)`
+(cała kompozycja). W praktyce Task 3 musiał je zastąpić wywołaniem TYLKO
+`render_ai_interpretation` + `render_dividend` — bo `render_price_chart`/
+`render_kpis`/`render_charts` trafiły już do zakładki Fundamenty, a wywołanie
+ich DRUGI RAZ przez starą kompozycję `render()` dawało
+`StreamlitDuplicateElementKey` (ten sam `key=f"pxper_{ticker}"` w dwóch
+miejscach na jednym renderze). Szukaj więc w `app.py` bloku:
+```python
+    # ---------------- Financial Charts ----------------
+    st.divider()
+    financial_charts.render_ai_interpretation(pick, row, _hist_row,
+                                              wl.get("notes", {}).get(pick))
+    financial_charts.render_dividend(pick, row, _hist_row)
+```
+(a nie starego `financial_charts.render(pick, row, notes=...)`).
+
+Usuń z `app.py` blok `if pick.endswith(".WA"): render_pwpa(...)` (linie ~920-922) oraz cały powyższy blok Financial Charts. Dodaj import `import sections.valuation` i wpięcie:
 
 ```python
     with tab_val:
@@ -702,14 +719,26 @@ git commit -m "feat: zakladka Decyzja (ocena jakosciowa, zalety/wady, panel)"
         return 1
     print("[OK ] Notatki: sekcja obecna")
 
-    # Spec celuje w ~350 linii; 600 to prog ostrzegawczy z zapasem, zeby test
-    # nie pekal przy kazdej drobnej zmianie w app.py.
+    # Prog ostrzegawczy z zapasem, zeby test nie pekal przy kazdej drobnej
+    # zmianie w app.py (zobacz uwage nizej o pierwotnym, blednym celu ~350/600).
     dlugosc = len(open("app.py", encoding="utf-8").read().splitlines())
-    if dlugosc > 600:
-        print(f"BLAD: app.py ma {dlugosc} linii, prog to 600 (cel ~350)")
+    if dlugosc > 950:
+        print(f"BLAD: app.py ma {dlugosc} linii, prog to 950")
         return 1
     print(f"[OK ] app.py: {dlugosc} linii")
 ```
+
+**UWAGA — poprawka odkryta przy wykonaniu Task 7:** pierwotny plan zakladal
+cel ~350 linii / prog 600 dla `app.py` po tym zadaniu. W praktyce app.py
+zmniejszylo sie z 1111 linii (przed Task 1) do 905 linii (po usunieciu bloku
+notatek w tym zadaniu) — realna redukcja tylko z tych czesci, ktore ten plan
+faktycznie przenosil (fundamenty, wycena, rynek, decyzja, notatki). Reszta
+app.py (sidebar, filtry, tabela rankingowa, watchlisty, mostek Secrets) NIGDY
+nie byla w zakresie tego planu (spec projektowy mowil tylko o podziale sekcji
+"per spolka"), wiec proba zejscia do 350/600 linii bylaby wymyslonym celem bez
+pokrycia w zakresie zadan. Prog skorygowany na 950 (realne 905 + margines na
+drobne przyszle zmiany) — dziala jako regresyjny alarm przed rozrostem, nie
+jako fikcyjny cel architektoniczny.
 
 - [ ] **Krok 2: Uruchom test — musi paść**
 
@@ -748,6 +777,23 @@ def render(ticker: str, wl: dict, save_wl) -> None:
 ```
 
 Usuń z `app.py` importy, które przestały być używane (sprawdź: `research_deep`, `yt_transcribe`, `ai_research`, `decision_panel`, `os` — zostaw te, których nadal używa ranking albo mostek Secrets).
+
+- [ ] **Krok 4b: Usuń martwą funkcję kompozycji z `financial_charts.py`**
+
+Task 2 zostawił `render(ticker, row, notes=None)` jako kompozycję pięciu nowych
+funkcji — wyłącznie po to, żeby `app.py` działał przez chwilę między Task 2
+a Task 4 (jedyne wywołanie usunęło Task 4). Sprawdź, że to prawda, zanim
+usuniesz:
+
+```bash
+grep -rn "financial_charts\.render(" --include="*.py" .
+```
+
+Oczekiwane: brak wyników (poza samą definicją w `financial_charts.py`). Jeśli
+coś się znajdzie — **nie usuwaj**, tylko zgłoś to jako rozbieżność z planem.
+
+Jeśli pusto: usuń funkcję `render(...)` z `financial_charts.py` w całości
+(cała funkcja dodana w Task 2, krok 3, ostatni blok „def render").
 
 - [ ] **Krok 5: Uruchom pełny zestaw testów**
 
@@ -825,6 +871,6 @@ git commit -m "test: braki danych w pasku przegladu + opis ukladu w README"
 ## Weryfikacja końcowa
 
 - [ ] `tabs_test.py`, `ui_test.py`, `decision_test.py`, `smoke_test.py` — wszystkie zielone
-- [ ] `app.py` poniżej 600 linii
+- [ ] `app.py` poniżej 950 linii (patrz uwaga o skorygowanym progu w Task 7)
 - [ ] Aplikacja odpalona lokalnie: pasek widoczny nad zakładkami, pięć zakładek przełącza się, żadna nie jest pusta
 - [ ] PR z opisem, co się przeniosło i gdzie; w razie problemów rewert całego PR-a zamiast punktowych łatek

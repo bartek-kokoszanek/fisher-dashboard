@@ -23,6 +23,12 @@ import gurus
 import pwpa
 import pwpa_targets
 import research_deep
+import sections.decision
+import sections.fundamentals
+import sections.market
+import sections.notes
+import sections.overview
+import sections.valuation
 import universe
 import watchlists
 import yt_transcribe
@@ -843,7 +849,6 @@ if choices:
     pick = st.selectbox("Wybierz spolke", choices, index=default_idx,
                         format_func=lambda t: f"{t} — {config.NAMES.get(t, view.set_index('ticker').loc[t, 'name'])}")
     row = df[df["ticker"] == pick].iloc[0].to_dict()
-    st.info(f"📌 Analizowana spółka: **{co_label(pick, row)}**")
 
     # --- przypisanie spolki do list obserwacyjnych ---
     on_lists = [n for n, tks in wl["lists"].items() if pick in tks]
@@ -868,240 +873,29 @@ if choices:
         elif not wl_names:
             st.caption("Utworz liste w panelu bocznym, by zapisywac spolki.")
 
-    def _num(v):
-        return "—" if v is None or (isinstance(v, float) and pd.isna(v)) else v
+    _hist_row = financial_charts._hist(pick)
+    sections.overview.render(pick, row, _hist_row)
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Wynik laczny", _num(row.get("combined")))
-    c2.metric("Ilosciowy", _num(row.get("score")))
-    c3.metric("Jakosciowy (AI)", _num(row.get("quality")))
-    c4.metric("Pokrycie danych", f"{row.get('coverage', 0):.0f}%")
-    st.caption(f"🗓 Dane fundamentalne: **Yahoo Finance** · zaktualizowano "
-               f"{fmt_dt(row.get('fetched_at'))}")
+    tab_fund, tab_val, tab_market, tab_dec, tab_notes = st.tabs(
+        ["📊 Fundamenty", "💰 Wycena", "🌐 Rynek", "🎯 Decyzja", "📝 Notatki"])
 
-    # Sygnal inwestycyjny wg wybranej strategii (czy by kupil / sprzedal)
-    av = fisher_score.action_verdict(row.get("combined"))
-    guru_name = gurus.get(guru_key)["name"]
-    _msg = f"{av['emoji']} Wg strategii **{guru_name}**: **{av['label']}** — {av['desc']}."
-    if av["level"] in ("buy", "accumulate"):
-        st.success(_msg)
-    elif av["level"] == "hold":
-        st.warning(_msg)
-    elif av["level"] == "sell":
-        st.error(_msg)
-    else:
-        st.caption(_msg)
+    with tab_fund:
+        sections.fundamentals.render(pick, row, _hist_row, METRIC_LABELS, fmt_pct)
 
-    # --- Moje notatki per spolka (prywatne, zapis w Gist) ---
-    notes = wl.setdefault("notes", {})
-    _has_note = bool(notes.get(pick, "").strip())
-    with st.expander("📝 Moje notatki / wnioski z analiz" + (" ✓" if _has_note else ""),
-                     expanded=_has_note):
-        txt = st.text_area(
-            "Notatki", value=notes.get(pick, ""), height=160,
-            key=f"note_{pick}", label_visibility="collapsed",
-            placeholder="Twoje wlasne wnioski, tezy, wyceny, cytaty z analiz, "
-                        "ktore czytasz gdzie indziej. Uzytek osobisty.")
-        nc1, nc2 = st.columns([1, 4])
-        with nc1:
-            if st.button("💾 Zapisz notatke", key=f"savenote_{pick}"):
-                if txt.strip():
-                    notes[pick] = txt.strip()
-                else:
-                    notes.pop(pick, None)
-                save_wl()
-                st.success("Zapisano.")
-                st.rerun()
-        with nc2:
-            if watchlists.backend() == "gist":
-                st.caption("Zapis: GitHub Gist ✅ (trwaly, prywatny).")
-            else:
-                st.caption("Bez GITHUB_TOKEN+GIST_ID notatki sa lokalne i znikna "
-                           "przy restarcie aplikacji.")
+    with tab_val:
+        sections.valuation.render(pick, row, _hist_row,
+                                  wl.get("notes", {}).get(pick),
+                                  render_pwpa, co_label(pick, row))
 
-    # --- Rekomendacje analitykow z raportow GPW PWPA (tylko GPW) ---
-    if pick.endswith(".WA"):
-        render_pwpa(pick, co_label(pick, row))
+    with tab_market:
+        sections.market.render(pick, row, co_label(pick, row), yt_videos)
 
-    left, right = st.columns(2)
+    with tab_dec:
+        sections.decision.render(pick, row, wl, save_wl, guru_key,
+                                 co_label(pick, row))
 
-    with left:
-        st.subheader(f"Rozbicie ilosciowe — {co_label(pick, row)}")
-        subs = row.get("subscores") or {}
-        srows = []
-        for m, label in METRIC_LABELS.items():
-            if m in subs:
-                srows.append({"Metryka": label, "Pkt (0-100)": subs[m],
-                              "Wartosc surowa": fmt_pct(row.get(fisher_score.RAW_KEY[m]))})
-        st.dataframe(pd.DataFrame(srows), hide_index=True, width="stretch")
-        st.caption(f"Sektor: {row.get('sector') or '—'} · "
-                   f"Kapitalizacja: {row.get('market_cap') or '—'} {row.get('currency') or ''}")
-
-    with right:
-        st.subheader(f"Ocena jakosciowa ({gurus.get(guru_key)['name']}) — {co_label(pick, row)}")
-        ai = ai_research.load_cached(pick, guru_key)
-        if st.button("🤖 Uruchom research AI dla tej spolki",
-                     disabled=not ai_research.available()):
-            with st.spinner(f"Model ocenia przez pryzmat: {gurus.get(guru_key)['name']}..."):
-                try:
-                    ai = ai_research.research(pick, row.get("name", pick),
-                                              row.get("market", ""),
-                                              guru=guru_key, force=True)
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Blad research: {e}")
-        if ai:
-            for k, label in ai_research.DIMENSIONS.items():
-                sc = ai.get("scores", {}).get(k)
-                note = ai.get("notes", {}).get(k, "")
-                st.write(f"**{label.split('(')[0].strip()}** — {sc}/100")
-                if note:
-                    st.caption(note)
-            st.info(ai.get("summary", ""))
-            st.caption(f"Model: {ai.get('model')} · pewnosc: {ai.get('confidence')}% "
-                       f"· wygenerowano {fmt_dt(ai.get('researched_at'))} "
-                       "(wiedza modelu, bez wyszukiwarki)")
-        else:
-            st.caption("Brak researchu AI dla tej strategii. Uruchom przyciskiem powyzej.")
-
-    # --- Najwieksze zalety / wady (z researchu AI) ---
-    if ai and (ai.get("strengths") or ai.get("weaknesses")):
-        zc, wc = st.columns(2)
-        with zc:
-            st.subheader("✅ Najwieksze zalety")
-            for s in ai.get("strengths", []):
-                st.markdown(f"- {s}")
-        with wc:
-            st.subheader("⚠️ Najwieksze wady i ryzyka")
-            for w in ai.get("weaknesses", []):
-                st.markdown(f"- {w}")
-
-    # ---------------- Financial Charts ----------------
-    st.divider()
-    financial_charts.render(pick, row, notes=wl.get("notes", {}).get(pick))
-
-    # ---------------- Panel decyzyjny ----------------
-    st.divider()
-    decision_panel.render(pick, row, wl, save_wl)
-
-    # ---------------- Deep research ----------------
-    st.divider()
-    st.subheader(f"🔎 Deep research: sentyment rynku + YouTube + relacje inwestorskie — {co_label(pick, row)}")
-    st.caption(f"Analiza ostatnich {research_deep.MONTHS_BACK} miesiecy: artykuly "
-               "(Google Search), filmy z YouTube (tytuly + transkrypty, gdy dostepne) "
-               "i raporty z dzialu IR spolki. Sentyment NIE wplywa na Wynik strategii. "
-               "Trwa 1-3 min.")
-    deep = research_deep.load_cached(pick)
-    if st.button("🔎 Uruchom deep research dla tej spolki",
-                 disabled=not research_deep.available()):
-        with st.spinner("Szukam filmow, artykulow i raportow IR..."):
-            try:
-                deep = research_deep.research(pick, row.get("name", pick),
-                                              row.get("market", ""),
-                                              row.get("website"), force=True)
-            except Exception as e:
-                st.error(f"Blad deep research: {e}")
-    if not research_deep.available():
-        st.caption("Wymaga GEMINI_API_KEY (grounding dziala tylko z Gemini).")
-    if deep:
-        s = deep.get("sentiment")
-        dm1, dm2 = st.columns([1, 3])
-        with dm1:
-            if s is not None:
-                st.metric("Sentyment rynku", f"{s:+d}", delta=int(s),
-                          help="-100 skrajnie negatywny ... +100 skrajnie pozytywny")
-            st.caption(f"Pewnosc: {deep.get('confidence', '—')}%")
-        with dm2:
-            st.info(deep.get("sentiment_summary", ""))
-        if deep.get("key_news"):
-            with st.expander(f"📰 Najwazniejsze newsy ({len(deep['key_news'])})",
-                             expanded=True):
-                for n in deep["key_news"]:
-                    st.write(f"**{n.get('title', '')}** _{n.get('date', '')}_")
-                    st.caption(n.get("takeaway", ""))
-        if deep.get("youtube_findings"):
-            with st.expander(f"▶️ YouTube ({len(deep['youtube_findings'])})"):
-                if deep.get("yt_note"):
-                    st.caption(f"ℹ️ {deep['yt_note']}")
-                for v in deep["youtube_findings"]:
-                    st.write(f"**{v.get('title', '')}** — {v.get('channel', '')} "
-                             f"_{v.get('date', '')}_")
-                    st.caption(v.get("takeaway", ""))
-        if deep.get("ir_findings"):
-            with st.expander("🏢 Relacje inwestorskie / raporty"):
-                st.write(deep["ir_findings"])
-        if deep.get("sources"):
-            with st.expander(f"🔗 Zrodla ({len(deep['sources'])})"):
-                for src in deep["sources"]:
-                    st.markdown(f"- [{src.get('title', src['url'])}]({src['url']})")
-        st.caption(f"🗓 Źródła: Google Search (grounding) + YouTube + strona IR · "
-                   f"model: {deep.get('model')} · wygenerowano "
-                   f"{fmt_dt(deep.get('researched_at'))}")
-    else:
-        st.caption("Brak deep researchu dla tej spolki. Uruchom przyciskiem powyzej.")
-
-    # ---------------- Analiza wideo (AI agent oglada film) ----------------
-    st.divider()
-    st.subheader(f"🎧 Analiza wideo (AI) — {co_label(pick, row)}")
-    st.caption("Agent najpierw próbuje napisów; gdy ich brak, wysyła film do "
-               "Gemini, który **ogląda/odsłuchuje go po stronie Google** "
-               "(działa też z chmury — nasz serwer nie pobiera nic z YouTube).")
-    _vn = yt_transcribe.videos_note()
-    if _vn:
-        st.caption(f"ℹ️ {_vn}")
-    if not yt_transcribe.available():
-        st.caption("Wymaga GEMINI_API_KEY.")
-    else:
-        vids = yt_videos(pick, row.get("name", pick), row.get("market", ""))
-        if not vids:
-            st.caption("Nie znaleziono filmów o spółce z ostatnich 12 miesięcy"
-                       + ("" if not _vn else
-                          " — bez YOUTUBE_API_KEY wyszukiwanie z serwera "
-                          "zwykle nie działa."))
-        else:
-            def _vid_label(v):
-                mins = f" · {v['minutes']:.0f} min" if v.get("minutes") else ""
-                views = (f" · {v['views']:,} wyśw.".replace(",", " ")
-                         if v.get("views") else "")
-                return (f"{v.get('date', '')} · {str(v.get('title', ''))[:60]} "
-                        f"— {v.get('channel', '')}{mins}{views}")
-            labels = {v["id"]: _vid_label(v) for v in vids}
-            vid = st.selectbox(f"Film ({len(vids)} znalezionych, 12 mies.)",
-                               [v["id"] for v in vids],
-                               format_func=lambda i: labels.get(i, i),
-                               key=f"ytt_sel_{pick}")
-            video = next(v for v in vids if v["id"] == vid)
-            res = yt_transcribe.load_cached(vid)
-            if st.button("🎧 Przeanalizuj film", key=f"ytt_btn_{pick}"):
-                with st.spinner("Analizuję film (napisy albo odsłuch przez "
-                                "Gemini — do ~2 min)..."):
-                    try:
-                        res = yt_transcribe.run(video, row.get("name", pick),
-                                                pick, force=True)
-                    except Exception as e:
-                        st.error(f"Nie udalo sie: {e}")
-            if res:
-                st.markdown(f"**[{res.get('title', 'film')}]({res.get('url')})** — "
-                            f"źródło transkryptu: *{res.get('transcript_source')}*")
-                sc = res.get("sentiment")
-                if sc is not None:
-                    st.metric("Sentyment autora wobec spółki", f"{sc:+d}")
-                if res.get("thesis") and res["thesis"].lower() != "brak":
-                    st.info(res["thesis"])
-                if res.get("key_points"):
-                    st.markdown("**Kluczowe tezy:**")
-                    for p in res["key_points"]:
-                        st.markdown(f"- {p}")
-                if res.get("risks"):
-                    st.markdown("**Ryzyka wg autora:**")
-                    for p in res["risks"]:
-                        st.markdown(f"- {p}")
-                with st.expander("Fragment transkryptu"):
-                    st.write(res.get("transcript_excerpt", ""))
-                st.caption(f"🗓 Źródło: YouTube (transkrypt: "
-                           f"{res.get('transcript_source', '—')}) · "
-                           f"postawa: {res.get('speaker_stance', '—')} · "
-                           f"przeanalizowano {fmt_dt(res.get('analyzed_at'))}")
+    with tab_notes:
+        sections.notes.render(pick, wl, save_wl)
 else:
     st.info("Brak spolek spelniajacych filtry. Zluzuj min. pokrycie lub odswiez dane.")
 

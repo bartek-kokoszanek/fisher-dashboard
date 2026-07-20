@@ -14,3 +14,6 @@ data/
 
 # Sekrety Streamlit (NIGDY nie commitujemy prawdziwego klucza)
 .streamlit/secrets.toml
+
+# Ksiega postepu subagent-driven-development (scratch sesji, nie deliverable)
+.superpowers/
