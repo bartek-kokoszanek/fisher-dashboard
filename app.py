@@ -552,6 +552,18 @@ COLS = {
 
 # --- ustawienia tabeli: wybor/kolejnosc kolumn (trwale) + grupa dla +/- ---
 with st.expander("⚙️ Ustawienia tabeli (kolumny · grupa dla ±)"):
+    # Ten widget mierzy wlasna wysokosc TYLKO przy montowaniu/rerenderze (React
+    # componentDidMount/componentDidUpdate) i wysyla ja do hosta jako wysokosc
+    # <iframe>. Poniewaz expander domyslnie startuje zwiniety, <details> jest
+    # w tym momencie "display: none" i pomiar wewnatrz ramki wychodzi 0 - a
+    # rozwiniecie expandera pozniej NIE wywoluje ponownego pomiaru (to czysto
+    # kliencki toggle <details>, bez zdarzenia widocznego dla JS w iframe).
+    # Efekt: kafelki istnieja w DOM, ale ramka ma wysokosc 0 i nic nie widac.
+    # Wymuszamy sensowne minimum, zeby zawartosc byla zawsze widoczna.
+    st.markdown(
+        '<style>iframe[title="streamlit_sortables.sortable_items"]'
+        '{min-height: 400px !important;}</style>',
+        unsafe_allow_html=True)
     st.caption("🖱️ **Przeciągaj kafelki myszką**: kolejność w „Widoczne” = "
                "kolejność kolumn w tabeli. Przeciągnij do „Ukryte”, by usunąć "
                "kolumnę z tabeli. Układ jest zapamiętywany.")
