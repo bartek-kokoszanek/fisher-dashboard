@@ -749,6 +749,23 @@ def render(ticker: str, wl: dict, save_wl) -> None:
 
 Usuń z `app.py` importy, które przestały być używane (sprawdź: `research_deep`, `yt_transcribe`, `ai_research`, `decision_panel`, `os` — zostaw te, których nadal używa ranking albo mostek Secrets).
 
+- [ ] **Krok 4b: Usuń martwą funkcję kompozycji z `financial_charts.py`**
+
+Task 2 zostawił `render(ticker, row, notes=None)` jako kompozycję pięciu nowych
+funkcji — wyłącznie po to, żeby `app.py` działał przez chwilę między Task 2
+a Task 4 (jedyne wywołanie usunęło Task 4). Sprawdź, że to prawda, zanim
+usuniesz:
+
+```bash
+grep -rn "financial_charts\.render(" --include="*.py" .
+```
+
+Oczekiwane: brak wyników (poza samą definicją w `financial_charts.py`). Jeśli
+coś się znajdzie — **nie usuwaj**, tylko zgłoś to jako rozbieżność z planem.
+
+Jeśli pusto: usuń funkcję `render(...)` z `financial_charts.py` w całości
+(cała funkcja dodana w Task 2, krok 3, ostatni blok „def render").
+
 - [ ] **Krok 5: Uruchom pełny zestaw testów**
 
 ```bash
