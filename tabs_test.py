@@ -80,6 +80,9 @@ def main() -> int:
     rc = test_financial_charts_api()
     if rc:
         return rc
+    rc = test_pasek_braki()
+    if rc:
+        return rc
     return 0
 
 
@@ -92,6 +95,26 @@ def test_financial_charts_api() -> int:
         print(f"BLAD: brak funkcji w financial_charts: {brak}")
         return 1
     print(f"[OK ] financial_charts wystawia: {', '.join(wymagane)}")
+    return 0
+
+
+def test_pasek_braki() -> int:
+    """Spolka bez DCF, dywidendy i sentymentu — pasek pokazuje '—', nie znika."""
+    import sections.overview as ov
+    pusty = {"combined": None, "price": None, "coverage": 0,
+             "next_earnings_date": None, "last_dividend_value": None,
+             "ex_dividend_date": None, "currency": None, "fetched_at": None}
+    try:
+        ov._dni_do(None)
+        ov._dni_do("2020-01-01")
+        ov._dni_do("nie-data")
+    except Exception as e:
+        print(f"BLAD: _dni_do wywala sie na brzegowych danych: {e}")
+        return 1
+    if ov.DASH != "—":
+        print("BLAD: pasek nie uzywa '—' jako wartosci pustej")
+        return 1
+    print("[OK ] pasek: brakujace wartosci obsluzone")
     return 0
 
 

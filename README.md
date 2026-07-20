@@ -154,6 +154,26 @@ py -m venv .venv
 
 ---
 
+## Układ analizy spółki
+
+Po wybraniu spółki u góry widać **przypięty pasek przeglądu** — 7 kluczowych
+metryk (Wynik + sygnał, DCF / akcję, Cena docelowa PWPA, Najbliższe wyniki,
+Dywidenda, Sentyment, Pokrycie) plus źródło i czas danych — widoczny bez
+względu na to, która zakładka jest otwarta. Poniżej pięć zakładek tematycznych:
+
+- **📊 Fundamenty** — kurs akcji, rozbicie ilościowe (subscores Fishera), KPI
+  i 15 wykresów Plotly (patrz sekcja „Financial Charts" niżej).
+- **💰 Wycena** — interpretacja AI (Financial Quality + DCF / akcję), **💰
+  Dywidenda** i rekomendacje analityków GPW (PWPA).
+- **🌐 Rynek** — Deep research (sentyment, newsy, relacje inwestorskie) i
+  analiza wideo.
+- **🎯 Decyzja** — ocena jakościowa AI (Największe zalety / wady) i Panel
+  decyzyjny.
+- **📝 Notatki** — prywatne wnioski, które zasilają interpretację AI w
+  zakładce Wycena.
+
+---
+
 ## Research AI (opcjonalny, warstwa jakościowa)
 
 Domyślnie używa **darmowego Google Gemini**. Wygeneruj darmowy klucz (bez karty)
@@ -165,7 +185,7 @@ $env:GEMINI_API_KEY = "..."
 .\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
-W panelu **Analiza spółki** kliknij *🤖 Uruchom research AI* — model oceni wymiary
+W zakładce **🎯 Decyzja** kliknij *🤖 Uruchom research AI* — model oceni wymiary
 jakościowe (zarząd, fosa, R&D, uczciwość) **przez pryzmat wybranej strategii**
 i wypisze **Największe zalety** oraz **Największe wady i ryzyka** od myślników.
 Wyniki cache'owane per strategia w `data/ai_<strategia>_<ticker>.json`.
@@ -202,7 +222,7 @@ Np. dla darmowego Groq: `LLM_BASE_URL="https://api.groq.com/openai/v1"`,
 
 ## Deep research (sentyment + YouTube + relacje inwestorskie)
 
-Przycisk **🔎 Deep research** w panelu analizy bada ostatnie ~6 miesięcy:
+Przycisk **🔎 Deep research** w zakładce **🌐 Rynek** bada ostatnie ~6 miesięcy:
 
 - **Sentyment rynku** — Gemini z narzędziem Google Search (grounding, w darmowym
   tierze) przeszukuje świeże artykuły i ocenia sentyment w skali −100…+100.
@@ -241,7 +261,7 @@ dziennie (wyniki cache'owane 6 h).
 
 ## Financial Charts
 
-W sekcji analizy spółki (między oceną a deep research) moduł **📊 Financial Charts**:
+W zakładkach **📊 Fundamenty** i **💰 Wycena** moduł **📊 Financial Charts**:
 na górze **interpretacja AI** (Financial Quality 0–100 + **wycena DCF/akcję** +
 wycena AI Cheap/Fair/Expensive), która **uwzględnia Twoje prywatne notatki**
 z sekcji „📝 Moje notatki" (model ocenia, czy metryki potwierdzają Twoje tezy,
@@ -277,7 +297,7 @@ samego źródła (yfinance).
 
 ## Panel decyzyjny (scenariusze 3Y, bramka, kill criteria)
 
-W sekcji analizy spółki (za Financial Charts) moduł **🎯 Panel decyzyjny** —
+W zakładce **🎯 Decyzja** moduł **🎯 Panel decyzyjny** —
 natywna wersja dashboardu decyzyjnego w stylu Fisher/Lynch, dla każdej spółki:
 
 - **Scenariusze 3-letnie** low/base/high: cena docelowa + prawdopodobieństwo
