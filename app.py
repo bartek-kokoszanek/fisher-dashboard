@@ -23,6 +23,7 @@ import gurus
 import pwpa
 import pwpa_targets
 import research_deep
+import sections.fundamentals
 import sections.overview
 import universe
 import watchlists
@@ -905,19 +906,10 @@ if choices:
     if pick.endswith(".WA"):
         render_pwpa(pick, co_label(pick, row))
 
-    left, right = st.columns(2)
+    with tab_fund:
+        sections.fundamentals.render(pick, row, _hist_row, METRIC_LABELS, fmt_pct)
 
-    with left:
-        st.subheader(f"Rozbicie ilosciowe — {co_label(pick, row)}")
-        subs = row.get("subscores") or {}
-        srows = []
-        for m, label in METRIC_LABELS.items():
-            if m in subs:
-                srows.append({"Metryka": label, "Pkt (0-100)": subs[m],
-                              "Wartosc surowa": fmt_pct(row.get(fisher_score.RAW_KEY[m]))})
-        st.dataframe(pd.DataFrame(srows), hide_index=True, width="stretch")
-        st.caption(f"Sektor: {row.get('sector') or '—'} · "
-                   f"Kapitalizacja: {row.get('market_cap') or '—'} {row.get('currency') or ''}")
+    left, right = st.columns(2)
 
     with right:
         st.subheader(f"Ocena jakosciowa ({gurus.get(guru_key)['name']}) — {co_label(pick, row)}")
@@ -960,7 +952,9 @@ if choices:
 
     # ---------------- Financial Charts ----------------
     st.divider()
-    financial_charts.render(pick, row, notes=wl.get("notes", {}).get(pick))
+    financial_charts.render_ai_interpretation(pick, row, _hist_row,
+                                              wl.get("notes", {}).get(pick))
+    financial_charts.render_dividend(pick, row, _hist_row)
 
     # ---------------- Panel decyzyjny ----------------
     st.divider()

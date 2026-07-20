@@ -36,6 +36,12 @@ def main() -> int:
         return 1
     print("[OK ] pasek przegladu ma podpis zrodla")
 
+    fund = " ".join(str(m.value) for m in at.tabs[0].markdown)
+    if "Kurs akcji" not in fund:
+        print("BLAD: zakladka Fundamenty nie zawiera kursu akcji")
+        return 1
+    print("[OK ] Fundamenty: kurs akcji obecny")
+
     rc = test_financial_charts_api()
     if rc:
         return rc
