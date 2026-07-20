@@ -213,14 +213,30 @@ def verdict_for(ticker: str, row: dict, wl: dict | None = None) -> dict | None:
 
 
 def mechanical_baseline(row: dict) -> dict:
-    """Baza scenariuszy bez AI: konsensus analitykow albo proste mnozniki ceny."""
+    """Baza scenariuszy bez AI: konsensus analitykow albo zalozony wzrost roczny.
+
+    target_mean to 12-miesieczna cena docelowa (Yahoo targetMeanPrice), a
+    panel liczy scenariusze 3-LETNIE (compute_math robi (base/price)**(1/3)
+    dla CAGR) — bez przeliczenia 1-roczny konsensus wpadalby do wzoru na 3
+    lata i systemowo zanizal CAGR (np. 20% konsensusu rocznego -> tylko 6.3%
+    w cube-root na 3 lata, czyli ponizej progu bramki, mimo ze 20%/rok to
+    dobry wynik). Zakladamy, ze roczne tempo z konsensusu (albo zalozone
+    25%/rok, gdy brak konsensusu) utrzymuje sie 3 lata, i tak wyliczona cene
+    bazowa dopiero podajemy do tej samej matematyki 3-letniej co scenariusze
+    od AI/uzytkownika.
+    """
     price = _f(row.get("price"))
     target = _f(row.get("target_mean"))
-    base = target if target and target > 0 else (price * 1.25 if price else None)
-    src = "konsensus analitykow (cena docelowa)" if target else "mnoznik ceny (brak konsensusu)"
+    r1 = (target / price - 1) if (target and price and target > 0 and price > 0) else 0.25
+    r1 = max(-0.5, min(r1, 1.0))  # sanity clamp - odstajace dane Yahoo nie majq eksplodowac
+    base = price * (1 + r1) ** 3 if price else None
+    src = "konsensus analitykow (cena docelowa, rzutowana na 3 lata)" \
+        if target else "zalozony wzrost 25%/rok (brak konsensusu), rzutowany na 3 lata"
     scen = {}
     if base:
-        low = max((0.3 * price) if price else 0.0, base * 0.45)
+        # min(..., price): scenariusz negatywny nie powinien wypadac powyzej
+        # dzisiejszej ceny - przy duzym r1 samo 0.45*base moze to przekroczyc.
+        low = min(max(0.3 * price, base * 0.45), price)
         scen = {
             "low":  {"price": round(low, 2), "prob": 25,
                      "desc": f"Scenariusz negatywny — uzupelnij recznie ({src})."},
