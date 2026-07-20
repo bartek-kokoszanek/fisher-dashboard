@@ -5,34 +5,28 @@ docelowa istnieje wylacznie w tresci PDF raportu maklerskiego, wiec wyciaga
 ja AI (pwpa.extract -> pypdf + Gemini). To o wiele za drogo, zeby robic przy
 kazdym renderze tabeli, stad ten modul:
 
+  * ekstrakcja jest URUCHAMIANA RECZNIE (przycisk nad tabela), nigdy sama
+    z siebie — kazde zapytanie do modelu jest swiadoma decyzja uzytkownika,
   * wyniki trzymamy w JEDNYM malym pliku {ticker: {...}} — nie w 70 osobnych,
   * plik lezy w GISCIE (jak listy obserwacyjne), bo dysk Streamlit Cloud jest
-    ulotny: bez tego kazdy redeploy kasowalby wyniki i ekstrakcja ruszalaby
-    od zera, palac limit Gemini (~70 zapytan na kazdy deploy),
-  * odswiezanie chodzi w WATKU W TLE (nie blokuje UI), najwyzej raz na 24 h,
-  * przy odswiezeniu liczymy TYLKO to, co nowe: jesli najnowszy raport spolki
-    ma ten sam pdf_url co zapisany wynik, nie ruszamy modelu w ogole.
-
-Watek w tle nie ma ScriptRunContext Streamlita, wiec nie wola st.* — pisze
-do pliku, a kolejny rerun po prostu widzi swiezsze dane.
+    ulotny: bez tego kazdy redeploy kasowalby wyniki i kazda kolejna ekstrakcja
+    ruszalaby od zera, palac limit Gemini,
+  * liczymy TYLKO to, co nowe: jesli najnowszy raport spolki ma ten sam
+    pdf_url co zapisany wynik, nie ruszamy modelu w ogole.
 """
 from __future__ import annotations
 
-import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import ai_research
 import pwpa
 import watchlists
 
 FILE_NAME = "pwpa_targets.json"
-TTL_H = 24              # jak czesto wolno odswiezac calosc
 MAX_PER_RUN = 70        # twardy limit zapytan do modelu na jeden przebieg
 RETRY_FAILED_DAYS = 7   # nieczytelny PDF (skan) — nie probuj codziennie
 _MEMO_S = 60            # pamiec podreczna w procesie (Gist to zapytanie HTTP)
 
-_lock = threading.Lock()
-_running = False
 _memo: tuple[float, dict] | None = None
 
 
@@ -74,9 +68,38 @@ def _save(data: dict) -> None:
     _memo = (time.time(), data)
 
 
-def is_stale(data: dict | None = None) -> bool:
-    data = data if data is not None else load()
-    return _age_h(data.get("updated_at")) >= TTL_H
+def missing_for(tickers) -> list[str]:
+    """Tickery GPW objete PWPA, dla ktorych nie mamy jeszcze aktualnej ceny.
+
+    Sluzy do policzenia, ile zapytan do modelu kosztowalby przycisk — zanim
+    uzytkownik go kliknie.
+    """
+    data = load()
+    targets, failed = data["targets"], data["failed"]
+    try:
+        reports = pwpa.list_reports()
+    except Exception:
+        return []
+    latest: dict[str, dict] = {}
+    for r in reports:
+        cur = latest.get(r["ticker"])
+        if cur is None or r["date"] > cur["date"]:
+            latest[r["ticker"]] = r
+    out = []
+    for t in tickers:
+        if not str(t).endswith(".WA"):
+            continue
+        base = pwpa._base_ticker(t)
+        rep = latest.get(base)
+        if rep is None:
+            continue
+        have = targets.get(base)
+        if have and have.get("source_url") == rep["pdf_url"]:
+            continue
+        if _age_h(failed.get(rep["pdf_url"])) < RETRY_FAILED_DAYS * 24:
+            continue
+        out.append(base)
+    return out
 
 
 def cell(ticker: str) -> str | None:
@@ -103,8 +126,13 @@ def cell(ticker: str) -> str | None:
     return f"… · {reps[0]['date']}" if reps else None
 
 
-def refresh(max_items: int = MAX_PER_RUN, log=None) -> dict:
+def refresh(max_items: int = MAX_PER_RUN, log=None, only=None,
+            progress=None) -> dict:
     """Uzupelnia ceny docelowe dla spolek objetych PWPA. Zwraca statystyki.
+
+    only:     lista tickerow do przetworzenia (None = wszystkie objete PWPA).
+              Uzywane przez przycisk "wyciagnij dla widocznych spolek".
+    progress: callback(i, n, ticker) — do paska postepu w UI.
 
     Liczy tylko brakujace/nieaktualne wpisy (nowy raport = inny pdf_url).
     Kazdy blad jest lokalny — jedna spolka nie przerywa calosci.
@@ -129,9 +157,15 @@ def refresh(max_items: int = MAX_PER_RUN, log=None) -> dict:
         if cur is None or r["date"] > cur["date"]:
             latest[r["ticker"]] = r
 
-    for tk, rep in sorted(latest.items()):
+    wanted = None if only is None else {pwpa._base_ticker(t) for t in only}
+    todo = [(tk, rep) for tk, rep in sorted(latest.items())
+            if wanted is None or tk in wanted]
+
+    for _i, (tk, rep) in enumerate(todo):
         if stats["extracted"] >= max_items:
             break
+        if progress:
+            progress(_i, len(todo), tk)
         stats["checked"] += 1
         have = targets.get(tk)
         if have and have.get("source_url") == rep["pdf_url"]:
@@ -162,34 +196,6 @@ def refresh(max_items: int = MAX_PER_RUN, log=None) -> dict:
                                            # procesu nie kasuje juz zrobionej pracy
     _save(data)
     return stats
-
-
-def ensure_fresh() -> bool:
-    """Startuje odswiezanie w tle, jesli dane sa starsze niz TTL_H.
-
-    Nie blokuje. Zwraca True, jesli watek wystartowal w tym wywolaniu.
-    Guard chroni przed zdublowaniem watku przez kolejne reruny Streamlita.
-    """
-    global _running
-    if not ai_research.available():
-        return False
-    with _lock:
-        if _running or not is_stale():
-            return False
-        _running = True
-
-    def _work():
-        global _running
-        try:
-            refresh()
-        except Exception:
-            pass
-        finally:
-            with _lock:
-                _running = False
-
-    threading.Thread(target=_work, name="pwpa-targets", daemon=True).start()
-    return True
 
 
 def status() -> str:

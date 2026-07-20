@@ -450,12 +450,9 @@ _VALUATION_PL = {"Cheap": "🟢 Tania", "Fair": "🟡 Uczciwa", "Expensive": "�
 _GATE_EMOJI = {"green": "🟢", "amber": "🟡", "red": "🔴"}
 
 
-# ceny docelowe PWPA: odswiezanie chodzi w WATKU W TLE (max raz na 24 h),
-# nie blokuje renderu; tutaj tylko odczyt tego, co juz gotowe
-try:
-    pwpa_targets.ensure_fresh()
-except Exception:
-    pass
+# ceny docelowe PWPA: TYLKO odczyt gotowych wynikow. Ekstrakcja (PDF -> AI)
+# rusza wylacznie z przycisku pod tabela — zadne zapytanie do modelu nie
+# dzieje sie samo z siebie.
 _pwpa_targets_cache = pwpa_targets.load().get("targets", {})
 
 
@@ -771,11 +768,39 @@ if "fetched_at" in view.columns:
         st.caption(f"🗓 Źródło danych: **Yahoo Finance** · {_fresh} "
                    f"(cache 24h — wymuś pobranie przyciskiem 🔄 w panelu bocznym).")
 
-_pt_status = pwpa_targets.status()
-if _pt_status:
-    st.caption(f"📄 Ceny docelowe **GPW PWPA**: {_pt_status.replace('odświeżono', '· odświeżono')}"
-               + ("" if ai_research.available() else
-                  " · wymaga GEMINI_API_KEY, żeby ruszyła ekstrakcja z PDF"))
+# --- ceny docelowe PWPA: ekstrakcja na zadanie, dla widocznych spolek ---
+_pt_missing = pwpa_targets.missing_for(view["ticker"].tolist())
+_ptc1, _ptc2 = st.columns([2, 3], vertical_alignment="center")
+with _ptc1:
+    if st.button(f"📄 Wyciągnij wyceny PWPA dla widocznych spółek ({len(_pt_missing)})",
+                 disabled=not (_pt_missing and ai_research.available()),
+                 help="Czyta PDF-y najnowszych raportów maklerskich i wyciąga "
+                      "z nich cenę docelową (AI). Liczy TYLKO spółki bez "
+                      "aktualnej wyceny — ok. 5-10 s na spółkę, świadome "
+                      "zużycie limitu Gemini. Wyniki zapisują się na bieżąco, "
+                      "więc przerwanie nie kasuje już zrobionej pracy."):
+        _prog = st.progress(0.0, text="Czytam raporty...")
+        _stats = pwpa_targets.refresh(
+            only=_pt_missing,
+            progress=lambda i, n, tk: _prog.progress(
+                min(i / max(n, 1), 1.0), text=f"{tk} ({i + 1}/{n})"))
+        _prog.empty()
+        st.success(f"Wyciągnięto: {_stats['extracted']} · pominięto: "
+                   f"{_stats['skipped']} · błędy: {_stats['errors']}"
+                   + (f" · {_stats['error']}" if _stats.get("error") else ""))
+        st.rerun()
+with _ptc2:
+    _pt_visible = [t for t in view["ticker"]
+                   if t.endswith(".WA") and _pwpa_by_ticker.get(t[:-3].upper().strip())]
+    if not _pt_visible:
+        _pt_note = " · brak widocznych spółek objętych programem PWPA"
+    elif not _pt_missing:
+        _pt_note = " · wszystkie widoczne spółki policzone"
+    else:
+        _pt_note = ""
+    st.caption(f"📄 Ceny docelowe **GPW PWPA**: {pwpa_targets.status()}"
+               + ("" if ai_research.available() else " · wymaga GEMINI_API_KEY")
+               + _pt_note)
 
 st.download_button(
     "⬇ Eksport watchlisty do TradingView (CSV tickerow)",
