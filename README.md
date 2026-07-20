@@ -33,13 +33,21 @@ fundamentalnych — te profile to świadome uproszczenia.
 
 ## Segmenty rynku
 
-Filtr **Segment** w panelu bocznym: `Nasdaq`, `Nasdaq-AI` (kuratorowany
-podzbiór ~36 spółek AI — edytuj w [gpw_indices.py](gpw_indices.py)), **`S&P500`**
-(~500 spółek, lista w [sp500_tickers.py](sp500_tickers.py)), `WIG20`, `mWIG40`,
-`sWIG80` oraz `WIG-pozostałe`. Domyślnie zaznaczone są indeksy GPW
-(WIG20/mWIG40/sWIG80). Duże segmenty (`S&P500`, `WIG-pozostałe`) są **ładowane
-leniwie** przy pierwszym wybraniu — pobranie ~500 spółek potrwa kilka minut,
-potem działa z cache. Bazowe uniwersum = Nasdaq-24 + komplet WIG (~140 GPW).
+Filtr **Segment** w panelu bocznym: `Nasdaq`, **`NYSE`** (główny parkiet,
+~2800 spółek, lista w [nyse_tickers.py](nyse_tickers.py)), `Nasdaq-AI`
+(kuratorowany podzbiór ~36 spółek AI — edytuj w [gpw_indices.py](gpw_indices.py)),
+**`S&P500`** (~500 spółek, lista w [sp500_tickers.py](sp500_tickers.py)),
+`WIG20`, `mWIG40`, `sWIG80` oraz `WIG-pozostałe`. Domyślnie zaznaczone są
+indeksy GPW (WIG20/mWIG40/sWIG80). Duże segmenty (`NYSE`, `S&P500`,
+`WIG-pozostałe`) są **ładowane leniwie** przy pierwszym wybraniu — pobranie
+potrwa kilka minut (NYSE: ~2800 spółek, najdłużej), potem działa z cache.
+Bazowe uniwersum = Nasdaq-24 + komplet WIG (~140 GPW).
+
+Giełda spółki notowanej w USA (Nasdaq vs NYSE) jest rozpoznawana po
+przynależności do statycznej listy `nyse_tickers.py` — bez tego każda spółka
+spoza GPW dostawała domyślnie etykietę `Nasdaq`, więc realne spółki NYSE
+(np. JPM, KO, XOM) były błędnie oznaczane i filtr `Nasdaq` wciągał też
+notowania z NYSE.
 
 Składy indeksów zmieniają się kwartalnie — wygenerowane 2026-07-09; aby
 odświeżyć, uruchom ponownie generator (skrypt w historii projektu) lub popraw

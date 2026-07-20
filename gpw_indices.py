@@ -167,13 +167,27 @@ NASDAQ_AI = {
 from sp500_tickers import SP500 as _SP500_NAMES
 SP500 = set(_SP500_NAMES)
 
+from nyse_tickers import NYSE_TICKERS as _NYSE_NAMES
+NYSE = set(_NYSE_NAMES)
+
 SEGMENTS_GPW = ("WIG20", "mWIG40", "sWIG80", "WIG-pozostale")
-SEGMENTS_US = ("Nasdaq", "Nasdaq-AI", "S&P500")
+SEGMENTS_US = ("Nasdaq", "NYSE", "Nasdaq-AI", "S&P500")
 ALL_SEGMENTS = SEGMENTS_US + SEGMENTS_GPW
 
 
 def segments_of(ticker: str) -> set[str]:
-    """Zbior segmentow spolki (moze nalezec do kilku, np. Nasdaq + Nasdaq-AI + S&P500)."""
+    """Zbior segmentow spolki (moze nalezec do kilku, np. NYSE + S&P500).
+
+    Gielda USA (Nasdaq vs NYSE) rozpoznawana po przynaleznosci do statycznej
+    listy NYSE_TICKERS — wczesniej KAZDY ticker spoza GPW dostawal etykiete
+    "Nasdaq", wiec spolki notowane realnie na NYSE (np. JPM, KO, XOM) byly
+    bledne oznaczone jako Nasdaq (maskowane w kolumnie Segment przez to, ze
+    segment_label wolal etykiete S&P500, ale filtr segmentu w pasku bocznym
+    mial ten sam blad: zaznaczenie samego "Nasdaq" wciagalo tez spolki NYSE).
+    Ticker spoza obu statycznych list (np. rzadziej uzywana spolka spoza
+    S&P500/glownych indeksow) domyslnie zostaje przy "Nasdaq" — to nadal
+    przyblizenie, ale juz nie dla znanych nazw NYSE.
+    """
     if ticker.endswith(".WA"):
         if ticker in WIG20:
             return {"WIG20"}
@@ -182,7 +196,7 @@ def segments_of(ticker: str) -> set[str]:
         if ticker in SWIG80:
             return {"sWIG80"}
         return {"WIG-pozostale"}
-    segs = {"Nasdaq"}
+    segs = {"NYSE"} if ticker in NYSE else {"Nasdaq"}
     if ticker in NASDAQ_AI:
         segs.add("Nasdaq-AI")
     if ticker in SP500:
