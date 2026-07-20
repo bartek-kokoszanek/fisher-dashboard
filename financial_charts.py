@@ -280,7 +280,7 @@ def _prices(ticker: str, source: str) -> dict:
     return data.get_prices(ticker, source)
 
 
-def _render_dividend(ticker: str, row: dict, hist: dict):
+def render_dividend(ticker: str, row: dict, hist: dict):
     """Blok 'Dywidenda': ostatnia kwota, dzien odciecia, dzien wyplaty.
 
     Yahoo nie publikuje dnia WYPLATY dla wiekszosci spolek GPW — wtedy
@@ -392,16 +392,9 @@ def _render_dividend(ticker: str, row: dict, hist: dict):
     st.divider()
 
 
-def render(ticker: str, row: dict, notes: str | None = None):
-    st.subheader(f"📊 Financial Charts — {ticker} — {row.get('name', ticker)}")
-    st.caption("Wykresy finansowe z danych Yahoo Finance. ~5 lat historii + "
-               "prognoza analityków na 2 kolejne lata dla przychodów i EPS "
-               "(darmowe dane nie sięgają dalej). Dywidendy i P/E — dłużej. "
-               "Brakujące dane pokazywane są jako komunikat, nie błąd.")
-
-    with st.spinner("Ładuję historię finansową..."):
-        hist = _hist(ticker)
-
+def render_ai_interpretation(ticker: str, row: dict, hist: dict,
+                             notes: str | None = None) -> None:
+    """Interpretacja AI + Financial Quality + wycena DCF + wycena AI."""
     # AI interpretacja (nad wykresami; uwzglednia prywatne notatki inwestora)
     st.markdown("**🤖 Automatyczna interpretacja AI**")
     _has_notes = bool(notes and notes.strip())
@@ -461,8 +454,10 @@ def render(ticker: str, row: dict, notes: str | None = None):
         st.caption(("Analiza obejmowała Twoje notatki · " if fin.get("used_notes")
                     else "")
                    + f"wygenerowano {h.fmt_dt(fin.get('generated_at'))}")
-    st.divider()
 
+
+def render_price_chart(ticker: str, row: dict, hist: dict) -> None:
+    """Kurs akcji: okres, zrodlo cen, nakladki metryk."""
     # Wykres kursu akcji: okres + nakladki metryk + wybor zrodla cen
     st.markdown(f"**Kurs akcji — {row.get('name', ticker)}**")
     tc1, tc2 = st.columns([3, 1], vertical_alignment="bottom")
@@ -509,22 +504,46 @@ def render(ticker: str, row: dict, notes: str | None = None):
         "Wskaźniki tygodniowe (P/E, P/S, EV/EBITDA) liczone z ceny i rocznych "
         "sprawozdań — przybliżenie. Cena docelowa = bieżący konsensus "
         "(historia celów niedostępna w darmowych danych).")
-    st.divider()
 
-    _render_dividend(ticker, row, hist)
 
-    # KPI kafelki
+def render_kpis(hist: dict, row: dict) -> None:
+    """Kafelki KPI (Revenue CAGR, ROE, P/E, dywidenda, FCF, dlug/EBITDA)."""
     kpis = _kpis(hist, row)
     cols = st.columns(3)
     for i, (label, val) in enumerate(kpis):
         cols[i % 3].metric(label, val)
 
-    st.divider()
 
-    # Karty wykresow w 2 kolumnach
+def render_charts(hist: dict, row: dict) -> None:
+    """15 wykresow w kartach 2-kolumnowych."""
     specs = _specs(hist, row)
     for i in range(0, len(specs), 2):
         c1, c2 = st.columns(2)
         _card(c1, *specs[i])
         if i + 1 < len(specs):
             _card(c2, *specs[i + 1])
+
+
+def render(ticker: str, row: dict, notes: str | None = None) -> None:
+    """Cala sekcja w dotychczasowej kolejnosci (zgodnosc wstecz).
+
+    Po przepieciu zakladek w Task 3-4 ta funkcja przestaje byc uzywana
+    przez app.py — zostaje, bo nie ma powodu jej usuwac w tym kroku.
+    """
+    st.subheader(f"📊 Financial Charts — {ticker} — {row.get('name', ticker)}")
+    st.caption("Wykresy finansowe z danych Yahoo Finance. ~5 lat historii + "
+               "prognoza analityków na 2 kolejne lata dla przychodów i EPS "
+               "(darmowe dane nie sięgają dalej). Dywidendy i P/E — dłużej. "
+               "Brakujące dane pokazywane są jako komunikat, nie błąd.")
+
+    with st.spinner("Ładuję historię finansową..."):
+        hist = _hist(ticker)
+
+    render_ai_interpretation(ticker, row, hist, notes)
+    st.divider()
+    render_price_chart(ticker, row, hist)
+    st.divider()
+    render_dividend(ticker, row, hist)
+    render_kpis(hist, row)
+    st.divider()
+    render_charts(hist, row)

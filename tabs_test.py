@@ -35,6 +35,22 @@ def main() -> int:
         print("BLAD: brak podpisu zrodla w pasku przegladu")
         return 1
     print("[OK ] pasek przegladu ma podpis zrodla")
+
+    rc = test_financial_charts_api()
+    if rc:
+        return rc
+    return 0
+
+
+def test_financial_charts_api() -> int:
+    import financial_charts as fc
+    wymagane = ("render_ai_interpretation", "render_price_chart",
+                "render_dividend", "render_kpis", "render_charts", "render")
+    brak = [f for f in wymagane if not callable(getattr(fc, f, None))]
+    if brak:
+        print(f"BLAD: brak funkcji w financial_charts: {brak}")
+        return 1
+    print(f"[OK ] financial_charts wystawia: {', '.join(wymagane)}")
     return 0
 
 
