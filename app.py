@@ -283,9 +283,9 @@ _seg_default = [s for s in (_saved_seg or ["WIG20", "mWIG40", "sWIG80"])
 segments = st.sidebar.multiselect(
     "Segment", list(gpw_indices.ALL_SEGMENTS),
     default=_seg_default,
-    help="Nasdaq-AI = kuratorowany podzbior spolek AI. S&P500 i WIG-pozostale "
-         "dociagane sa leniwie (pierwsze zaladowanie potrwa kilka minut). "
-         "Wybor jest zapamietywany.",
+    help="Nasdaq-AI = kuratorowany podzbior spolek AI. NYSE, S&P500 i "
+         "WIG-pozostale dociagane sa leniwie (pierwsze zaladowanie potrwa "
+         "kilka minut). Wybor jest zapamietywany.",
 )
 if segments != _saved_seg:
     settings["segments"] = segments
@@ -390,6 +390,8 @@ if "WIG-pozostale" in segments:
                  if "WIG-pozostale" in gpw_indices.segments_of(t)], "WIG-pozostale")
 if "S&P500" in segments:
     _lazy_fetch(sorted(gpw_indices.SP500), "S&P500")
+if "NYSE" in segments:
+    _lazy_fetch(sorted(gpw_indices.NYSE), "NYSE")
 
 all_raws = raws + [r for t, r in extra_raws.items() if t not in known]
 data = [build_row(r, guru_key) for r in all_raws]

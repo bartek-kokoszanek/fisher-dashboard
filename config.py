@@ -62,4 +62,11 @@ def all_tickers():
 
 
 def market_of(ticker: str) -> str:
-    return "GPW" if ticker.endswith(".WA") else "Nasdaq"
+    """Gielda spolki: 'GPW' (.WA), 'NYSE' (znana lista glownego parkietu)
+    albo domyslnie 'Nasdaq'. Ta sama lista co segmenty w gpw_indices.py —
+    bez niej kazda spolka NYSE (np. JPM, KO, XOM) byla oznaczana jako
+    Nasdaq, co trafialo do promptow AI i zapytan wyszukiwania (yt_transcribe,
+    research_deep) jako fakt o niewlasciwej gieldzie."""
+    if ticker.endswith(".WA"):
+        return "GPW"
+    return "NYSE" if ticker in _gi.NYSE else "Nasdaq"

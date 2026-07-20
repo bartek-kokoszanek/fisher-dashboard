@@ -1,7 +1,9 @@
-"""Pelna pula symboli Nasdaq + GPW do wyszukiwarki.
+"""Pelna pula symboli Nasdaq + NYSE + GPW do wyszukiwarki.
 
 - Nasdaq: oficjalny katalog nasdaqlisted.txt z nasdaqtrader.com,
   pobierany i cache'owany lokalnie na 7 dni (data/nasdaqlisted.txt).
+- NYSE: statyczna lista w nyse_tickers.py (glowny parkiet, wygenerowana
+  z otherlisted.txt; ~2800 spolek, bez warrantow/jednostek/praw).
 - GPW: statyczna lista w gpw_tickers.py (generowana z katalogu spolek;
   ~370 spolek rynku glownego).
 
@@ -63,17 +65,29 @@ def nasdaq_symbols() -> dict[str, str]:
     return out
 
 
+def nyse_symbols() -> dict[str, str]:
+    from nyse_tickers import NYSE_TICKERS
+    return dict(NYSE_TICKERS)
+
+
 def gpw_symbols() -> dict[str, str]:
     return dict(GPW_TICKERS)
 
 
 def all_symbols() -> dict[str, str]:
-    """Pelna pula {ticker: nazwa}; GPW z sufiksem .WA, + S&P500 (tez z NYSE)."""
+    """Pelna pula {ticker: nazwa}: Nasdaq + NYSE + GPW + reszta S&P500.
+
+    Nasdaq i NYSE (glowny parkiet) pokrywaja niemal cale S&P500, ale
+    pojedyncze spolki (np. CBOE — notowana poza obu katalogami) nie
+    laduja sie w zadnym z nich — dogrywamy je z osobnej, statycznej
+    listy S&P500, zeby nic nie znikalo z wyszukiwarki.
+    """
     pool = nasdaq_symbols()
+    pool.update(nyse_symbols())
     pool.update(gpw_symbols())
     from sp500_tickers import SP500
     for tk, name in SP500.items():
-        pool.setdefault(tk, name)  # dodaj spolki S&P500 spoza katalogu Nasdaq (NYSE)
+        pool.setdefault(tk, name)
     return pool
 
 
