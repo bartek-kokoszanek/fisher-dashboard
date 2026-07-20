@@ -77,4 +77,3 @@ def render(ticker: str, row: dict, hist: dict) -> None:
         c[6].metric("Pokrycie", f"{row.get('coverage', 0):.0f}%")
 
         st.caption(f"🗓 Yahoo Finance · zaktualizowano {fmt_dt(row.get('fetched_at'))}")
-        st.markdown("Wynik · DCF · PWPA · Dywidenda · Pokrycie")

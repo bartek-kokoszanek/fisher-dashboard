@@ -21,12 +21,20 @@ def main() -> int:
         return 1
     print(f"[OK ] zakladki: {etykiety}")
 
-    teksty = " ".join(str(m.value) for m in at.markdown)
-    for pole in ("Wynik", "DCF", "PWPA", "Dywidenda", "Pokrycie"):
-        if pole not in teksty:
-            print(f"BLAD: brak pola '{pole}' w pasku przegladu")
-            return 1
-    print("[OK ] pasek przegladu zawiera komplet pol")
+    etykiety_metryk = {m.label for m in at.metric}
+    oczekiwane_metryki = {"Wynik", "DCF / akcję", "Cena docelowa PWPA",
+                          "Najbliższe wyniki", "Dywidenda", "Sentyment",
+                          "Pokrycie"}
+    brakujace = oczekiwane_metryki - etykiety_metryk
+    if brakujace:
+        print(f"BLAD: brak metryk w pasku przegladu: {brakujace}")
+        return 1
+    print("[OK ] pasek przegladu zawiera komplet metryk")
+
+    if not any("Yahoo Finance" in str(c.value) for c in at.caption):
+        print("BLAD: brak podpisu zrodla w pasku przegladu")
+        return 1
+    print("[OK ] pasek przegladu ma podpis zrodla")
     return 0
 
 
