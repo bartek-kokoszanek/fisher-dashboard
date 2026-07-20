@@ -23,6 +23,7 @@ import gurus
 import pwpa
 import pwpa_targets
 import research_deep
+import sections.overview
 import universe
 import watchlists
 import yt_transcribe
@@ -843,7 +844,6 @@ if choices:
     pick = st.selectbox("Wybierz spolke", choices, index=default_idx,
                         format_func=lambda t: f"{t} — {config.NAMES.get(t, view.set_index('ticker').loc[t, 'name'])}")
     row = df[df["ticker"] == pick].iloc[0].to_dict()
-    st.info(f"📌 Analizowana spółka: **{co_label(pick, row)}**")
 
     # --- przypisanie spolki do list obserwacyjnych ---
     on_lists = [n for n, tks in wl["lists"].items() if pick in tks]
@@ -868,29 +868,11 @@ if choices:
         elif not wl_names:
             st.caption("Utworz liste w panelu bocznym, by zapisywac spolki.")
 
-    def _num(v):
-        return "—" if v is None or (isinstance(v, float) and pd.isna(v)) else v
+    _hist_row = financial_charts._hist(pick)
+    sections.overview.render(pick, row, _hist_row)
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Wynik laczny", _num(row.get("combined")))
-    c2.metric("Ilosciowy", _num(row.get("score")))
-    c3.metric("Jakosciowy (AI)", _num(row.get("quality")))
-    c4.metric("Pokrycie danych", f"{row.get('coverage', 0):.0f}%")
-    st.caption(f"🗓 Dane fundamentalne: **Yahoo Finance** · zaktualizowano "
-               f"{fmt_dt(row.get('fetched_at'))}")
-
-    # Sygnal inwestycyjny wg wybranej strategii (czy by kupil / sprzedal)
-    av = fisher_score.action_verdict(row.get("combined"))
-    guru_name = gurus.get(guru_key)["name"]
-    _msg = f"{av['emoji']} Wg strategii **{guru_name}**: **{av['label']}** — {av['desc']}."
-    if av["level"] in ("buy", "accumulate"):
-        st.success(_msg)
-    elif av["level"] == "hold":
-        st.warning(_msg)
-    elif av["level"] == "sell":
-        st.error(_msg)
-    else:
-        st.caption(_msg)
+    tab_fund, tab_val, tab_market, tab_dec, tab_notes = st.tabs(
+        ["📊 Fundamenty", "💰 Wycena", "🌐 Rynek", "🎯 Decyzja", "📝 Notatki"])
 
     # --- Moje notatki per spolka (prywatne, zapis w Gist) ---
     notes = wl.setdefault("notes", {})
