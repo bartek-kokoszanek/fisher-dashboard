@@ -17,10 +17,10 @@ def render(ticker: str, row: dict, hist: dict, metric_labels: dict,
     financial_charts.render_price_chart(ticker, row, hist)
     st.divider()
 
-    st.markdown("**Rozbicie ilosciowe**")
+    st.markdown("**Rozbicie ilościowe**")
     subs = row.get("subscores") or {}
     srows = [{"Metryka": label, "Pkt (0-100)": subs[m],
-              "Wartosc surowa": fmt_pct(row.get(fisher_score.RAW_KEY[m]))}
+              "Wartość surowa": fmt_pct(row.get(fisher_score.RAW_KEY[m]))}
              for m, label in metric_labels.items() if m in subs]
     st.dataframe(pd.DataFrame(srows), hide_index=True, width="stretch")
     st.caption(f"Sektor: {row.get('sector') or '—'} · "
