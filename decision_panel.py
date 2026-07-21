@@ -1,4 +1,4 @@
-"""Panel decyzyjny per spolka: scenariusze 3Y, bramka decyzyjna, kill criteria, os czasu.
+"""Panel decyzyjny per spolka: scenariusze 12M, bramka decyzyjna, kill criteria, os czasu.
 
 Natywna wersja dashboardu HTML uzytkownika (analiza CRWV) dzialajaca dla kazdego
 tickera. Trzy warstwy danych:
@@ -27,7 +27,7 @@ GATE_LABELS = {
     "variant":   "Variant perception po mojej stronie",
     "asym":      "Asymetria ≥ 2:1 i EV > kurs",
     "cagr":      "Base case ≥ hurdle rate 12–15%",
-    "catalyst":  "Katalizator w 12–18M",
+    "catalyst":  "Katalizator w 12M",
     "liquidity": "Plynnosc wystarczajaca",
 }
 GATE_ORDER = list(GATE_LABELS)
@@ -35,8 +35,21 @@ STATUSES = ("ok", "borderline", "fail")
 _STATUS_ICON = {"ok": "✅", "borderline": "⚠️", "fail": "❌"}
 _RANK = {"ok": 0, "borderline": 1, "fail": 2}
 
-HURDLE_LOW, HURDLE_HIGH = 0.12, 0.15   # prog CAGR (dolna/pelna granica)
+# Horyzont panelu. Konsensus analitykow Yahoo (target_mean) JEST cena docelowa
+# na 12 miesiecy, wiec przy tym horyzoncie mapuje sie 1:1 - bez rzutowania w
+# czasie, ktore bylo zrodlem bledow przy poprzednim horyzoncie 3-letnim.
+HORIZON_MONTHS = 12
+
+HURDLE_LOW, HURDLE_HIGH = 0.12, 0.15   # prog zwrotu 12M (dolna/pelna granica)
 ASYM_MIN = 2.0                          # wymagana asymetria zysk:strata
+MAX_DRAWDOWN = -0.30                    # glebszy dolek w LOW -> max pol pozycji
+STALE_DAYS = 90                         # starsza baza AI -> ostrzezenie o swiezosci
+VARIANT_EDGE_MIN = 0.05                 # <5 pp roznicy vs konsensus = brak przewagi
+
+# Mnozniki bazy mechanicznej, skalibrowane na 12M (wariant konserwatywny).
+MECH_LOW_MULT = 0.75       # LOW  = kurs * 0.75
+MECH_HIGH_MULT = 1.25      # HIGH = base * 1.25
+MECH_NO_CONSENSUS = 1.10   # brak konsensusu -> BASE = kurs * 1.10
 
 
 def _f(v) -> float | None:
@@ -51,10 +64,14 @@ def _f(v) -> float | None:
 # ---------------- Obliczenia (czyste funkcje) ----------------
 
 def compute_math(price, scen: dict) -> dict:
-    """EV, CAGR i asymetria ze scenariuszy (wiernie do JS z dashboardu HTML).
+    """EV, zwrot i asymetria ze scenariuszy na horyzoncie HORIZON_MONTHS.
 
     scen = {"low"/"base"/"high": {"price": .., "prob": ..}}; prob base
     dopelnia sume do 100. Zwraca None w polach nieobliczalnych.
+
+    Przy horyzoncie 12M zwrot okresowy JEST zwrotem rocznym, wiec pola
+    "cagr_*" to zwykle (cena/kurs - 1) - bez anualizacji pierwiastkiem,
+    ktora byla potrzebna tylko przy horyzoncie wieloletnim.
     """
     price = _f(price)
     p_low = _f(scen.get("low", {}).get("price"))
@@ -66,17 +83,16 @@ def compute_math(price, scen: dict) -> dict:
 
     out = {"low_prob": low_prob, "base_prob": base_prob, "high_prob": high_prob,
            "ev": None, "ev_pct": None, "cagr_ev": None, "cagr_base": None,
-           "asym": None}
+           "asym": None, "low_pct": None}
     if None in (p_low, p_base, p_high):
         return out
     ev = (p_low * low_prob + p_base * base_prob + p_high * high_prob) / 100
     out["ev"] = ev
     if price and price > 0:
         out["ev_pct"] = ev / price - 1
-        if ev > 0:
-            out["cagr_ev"] = (ev / price) ** (1 / 3) - 1
-        if p_base > 0:
-            out["cagr_base"] = (p_base / price) ** (1 / 3) - 1
+        out["cagr_ev"] = ev / price - 1
+        out["cagr_base"] = p_base / price - 1
+        out["low_pct"] = p_low / price - 1   # zasila guard obsuniecia
         if price > p_low:
             out["asym"] = (p_high - price) / (price - p_low)
         # price <= p_low: strata do scenariusza low zerowa -> asym "n/d" (None)
@@ -135,6 +151,19 @@ def eval_gate(row: dict, mth: dict, gate_ai: dict, overrides: dict) -> list[dict
     else:
         auto["cagr"] = ("fail", f"CAGR base {cb*100:.1f}% < {HURDLE_LOW*100:.0f}%")
 
+    # variant: porownanie WLASNEJ tezy z konsensusem analitykow. Status zostaje
+    # jakosciowy (None), bo przewaga nad rynkiem to kwestia uzasadnienia, nie
+    # samej roznicy liczb - ale bez tego zestawienia nie widac, czy w ogole
+    # masz odmienny poglad, czy tylko powtarzasz konsensus.
+    tu = _f(row.get("target_upside"))
+    if tu is not None and cb is not None:
+        spread = cb - tu
+        opis = ("teza zbiezna z rynkiem, brak przewagi informacyjnej"
+                if abs(spread) < VARIANT_EDGE_MIN
+                else f"odmienna teza ({spread*100:+.0f} pp)")
+        auto["variant"] = (None, f"Twoj base {cb*100:+.0f}% vs konsensus "
+                                 f"{tu*100:+.0f}% — {opis}")
+
     # liquidity: kapitalizacja jako proxy plynnosci
     if mcap is None:
         auto["liquidity"] = (None, "brak kapitalizacji")
@@ -155,7 +184,10 @@ def eval_gate(row: dict, mth: dict, gate_ai: dict, overrides: dict) -> list[dict
         a_status, a_info = auto.get(gid, (None, ""))
         if gid in ("variant", "catalyst"):        # czysto jakosciowe
             status = qual_status or "borderline"
-            info = qual_info or "ocena reczna / wymaga AI"
+            # a_info bywa tu podpowiedzia liczbowa (variant vs konsensus),
+            # ale NIE wplywa na status - ten zostaje ocena jakosciowa.
+            info = " · ".join(x for x in (a_info, qual_info) if x) \
+                or "ocena reczna / wymaga AI"
         else:
             status = _worse(a_status, qual_status)
             info = " · ".join(x for x in (a_info, qual_info) if x)
@@ -164,15 +196,28 @@ def eval_gate(row: dict, mth: dict, gate_ai: dict, overrides: dict) -> list[dict
     return out
 
 
-def final_verdict(gate: list[dict], kill_broken: int) -> dict:
-    """Werdykt koncowy z bramki + kill criteria (regula jak w dashboardzie HTML)."""
+def final_verdict(gate: list[dict], kill_broken: int,
+                  low_pct: float | None = None) -> dict:
+    """Werdykt koncowy z bramki + kill criteria (regula jak w dashboardzie HTML).
+
+    low_pct (opcjonalne) to obsuniecie scenariusza LOW wzgledem kursu. Przy
+    horyzoncie 12M gleboki dolek jest realniejszy niz przy 3 latach, wiec
+    obsuniecie ponizej MAX_DRAWDOWN odbiera werdyktowi "zielona" - nigdy
+    jednak nie podnosi werdyktu, moze go tylko sciac.
+    """
     if kill_broken >= 1:
         return {"label": "WYJDZ / NIE KUPUJ", "level": "red",
                 "desc": f"zlamane kill criteria: {kill_broken}"}
     st_by_id = {g["id"]: g["status"] for g in gate}
     math_ok = st_by_id.get("asym") == "ok" and st_by_id.get("cagr") in ("ok", "borderline")
     quality_ok = all(st_by_id.get(g) != "fail" for g in ("fisher", "variant", "catalyst"))
+    deep_dd = low_pct is not None and low_pct < MAX_DRAWDOWN
     if all(s == "ok" for s in st_by_id.values()):
+        if deep_dd:
+            return {"label": "OK Z ZASTRZEZENIAMI — pol pozycji", "level": "amber",
+                    "desc": f"bramka czysta, ale scenariusz LOW to "
+                            f"{low_pct*100:.0f}% — obsuniecie glebsze niz "
+                            f"{abs(MAX_DRAWDOWN)*100:.0f}% limituje wielkosc pozycji"}
         return {"label": "POZYCJA OK", "level": "green",
                 "desc": "wszystkie warunki bramki spelnione"}
     if math_ok and quality_ok:
@@ -195,7 +240,8 @@ def verdict_for(ticker: str, row: dict, wl: dict | None = None) -> dict | None:
     Zwraca None, gdy nie da sie zbudowac scenariuszy (brak ceny i konsensusu).
     """
     user = ((wl or {}).get("decision") or {}).get(ticker) or {}
-    baseline = load_cached(ticker) or mechanical_baseline(row)
+    user = migrate_horizon(user, row) or {}
+    baseline = migrate_horizon(load_cached(ticker), row) or mechanical_baseline(row)
     merged = _merge(baseline, user)
     scen = merged.get("scenarios") or {}
     if not scen:
@@ -207,42 +253,92 @@ def verdict_for(ticker: str, row: dict, wl: dict | None = None) -> dict | None:
                      user.get("gate_overrides", {}))
     kill = list(merged.get("kill") or [])
     n_broken = len([k for k in (user.get("kill_broken") or []) if k in kill])
-    out = final_verdict(gate, n_broken)
+    out = final_verdict(gate, n_broken, mth.get("low_pct"))
     out["source"] = baseline.get("source", "mechanical")
     return out
 
 
-def mechanical_baseline(row: dict) -> dict:
-    """Baza scenariuszy bez AI: konsensus analitykow albo zalozony wzrost roczny.
+def migrate_horizon(data: dict | None, row: dict) -> dict | None:
+    """Stare bazy/nadpisania 3-letnie -> ceny na horyzont HORIZON_MONTHS.
 
-    target_mean to 12-miesieczna cena docelowa (Yahoo targetMeanPrice), a
-    panel liczy scenariusze 3-LETNIE (compute_math robi (base/price)**(1/3)
-    dla CAGR) — bez przeliczenia 1-roczny konsensus wpadalby do wzoru na 3
-    lata i systemowo zanizal CAGR (np. 20% konsensusu rocznego -> tylko 6.3%
-    w cube-root na 3 lata, czyli ponizej progu bramki, mimo ze 20%/rok to
-    dobry wynik). Zakladamy, ze roczne tempo z konsensusu (albo zalozone
-    25%/rok, gdy brak konsensusu) utrzymuje sie 3 lata, i tak wyliczona cene
-    bazowa dopiero podajemy do tej samej matematyki 3-letniej co scenariusze
-    od AI/uzytkownika.
+    Panel liczyl kiedys scenariusze na 3 lata, wiec zapisane wtedy ceny sa
+    2-3x wyzsze niz to, co ta sama teza oznacza w 12 miesiecy - bez
+    przeliczenia stary cache dawalby razaco zbyt optymistyczny werdykt.
+    Sciagamy je odwrotnoscia tej samej matematyki, ktora je tworzyla:
+    p12 = kurs * (p3/kurs)**(1/3).
+
+    Wynik NIE jest zapisywany na dysk ani do Gista - przeliczenie zyje w
+    pamieci i utrwala sie dopiero, gdy uzytkownik kliknie "Zapisz panel".
+    """
+    if not data or data.get("horizon_months") == HORIZON_MONTHS:
+        return data
+    scen = data.get("scenarios") or {}
+    price = _f(row.get("price"))
+    if not scen or not price or price <= 0:
+        return data
+    out = copy.deepcopy(data)
+    for k in ("low", "base", "high"):
+        p = _f((out.get("scenarios") or {}).get(k, {}).get("price"))
+        if p and p > 0:
+            out["scenarios"][k]["price"] = round(price * (p / price) ** (1 / 3), 2)
+    out["horizon_months"] = HORIZON_MONTHS
+    out["horizon_migrated"] = True
+    return out
+
+
+def staleness_note(baseline: dict | None, row: dict) -> str | None:
+    """Ostrzezenie, gdy baza AI moze byc przeterminowana (nie zmienia werdyktu).
+
+    Przy horyzoncie 12M swiezosc zalozen wazy duzo wiecej niz przy 3 latach:
+    jeden raport kwartalny to juz 1/4 calego okresu prognozy.
+    """
+    if (baseline or {}).get("source") != "ai":
+        return None
+    try:
+        gen_d = date.fromisoformat(str(baseline.get("generated_at") or "")[:10])
+    except (TypeError, ValueError):
+        return None
+    powody = []
+    age = (date.today() - gen_d).days
+    if age > STALE_DAYS:
+        powody.append(f"baza AI ma {age} dni")
+    try:
+        lq = date.fromisoformat(str(row.get("last_q_date") or "")[:10])
+        if lq > gen_d:
+            powody.append(f"od jej wygenerowania byl raport kwartalny ({lq})")
+    except (TypeError, ValueError):
+        pass
+    if not powody:
+        return None
+    return " · ".join(powody) + " — wygeneruj baze ponownie."
+
+
+def mechanical_baseline(row: dict) -> dict:
+    """Baza scenariuszy bez AI na horyzont HORIZON_MONTHS.
+
+    target_mean to 12-miesieczna cena docelowa (Yahoo targetMeanPrice), wiec
+    przy horyzoncie 12M idzie do scenariusza bazowego 1:1 — bez zadnego
+    rzutowania w czasie. Widelki sa celowo waskie: -25% w dol od kursu i
+    +25% ponad cel to realistyczny rozrzut roczny, a nie skrajnosci (stare
+    mnozniki 0.45/1.6 byly strojone pod trzy lata).
     """
     price = _f(row.get("price"))
     target = _f(row.get("target_mean"))
-    r1 = (target / price - 1) if (target and price and target > 0 and price > 0) else 0.25
-    r1 = max(-0.5, min(r1, 1.0))  # sanity clamp - odstajace dane Yahoo nie majq eksplodowac
-    base = price * (1 + r1) ** 3 if price else None
-    src = "konsensus analitykow (cena docelowa, rzutowana na 3 lata)" \
-        if target else "zalozony wzrost 25%/rok (brak konsensusu), rzutowany na 3 lata"
     scen = {}
-    if base:
-        # min(..., price): scenariusz negatywny nie powinien wypadac powyzej
-        # dzisiejszej ceny - przy duzym r1 samo 0.45*base moze to przekroczyc.
-        low = min(max(0.3 * price, base * 0.45), price)
+    if price and price > 0:
+        base = target if (target and target > 0) else price * MECH_NO_CONSENSUS
+        src = "konsensus analitykow (cena docelowa 12M)" if (target and target > 0) \
+            else (f"brak konsensusu — zalozone "
+                  f"+{(MECH_NO_CONSENSUS - 1) * 100:.0f}% w 12 mies.")
+        # min(...): gwarantuje low < base takze wtedy, gdy cel analitykow
+        # lezy ponizej dzisiejszego kursu (np. spolka po mocnym odbiciu).
+        low = min(price * MECH_LOW_MULT, base * 0.9)
         scen = {
             "low":  {"price": round(low, 2), "prob": 25,
                      "desc": f"Scenariusz negatywny — uzupelnij recznie ({src})."},
             "base": {"price": round(base, 2), "prob": 50,
                      "desc": f"Scenariusz bazowy — {src}."},
-            "high": {"price": round(base * 1.6, 2), "prob": 25,
+            "high": {"price": round(base * MECH_HIGH_MULT, 2), "prob": 25,
                      "desc": f"Scenariusz pozytywny — uzupelnij recznie ({src})."},
         }
     timeline = []
@@ -252,14 +348,15 @@ def mechanical_baseline(row: dict) -> dict:
                          "desc": "Najblizsza planowana publikacja wynikow.",
                          "type": "plus"})
     return {"scenarios": scen, "gate": [], "kill": [], "timeline": timeline,
-            "verdict_hint": "", "source": "mechanical"}
+            "verdict_hint": "", "source": "mechanical",
+            "horizon_months": HORIZON_MONTHS}
 
 
 def _validate(data: dict, row: dict) -> dict:
     """Sanityzacja JSON z modelu: koercja liczb, clamp prob, porzadek cen,
     statusy/typy spoza slownika, limity dlugosci; braki -> fallback mechaniczny."""
     fb = mechanical_baseline(row)
-    out = {"source": "ai"}
+    out = {"source": "ai", "horizon_months": HORIZON_MONTHS}
 
     scen_in = data.get("scenarios") if isinstance(data.get("scenarios"), dict) else {}
     scen = {}
@@ -335,9 +432,9 @@ def _merge(baseline: dict, user: dict) -> dict:
 SYSTEM_DECISION = (
     "Jestes doswiadczonym analitykiem akcji laczacym frameworki Phila Fishera "
     "i Petera Lyncha. Budujesz panel decyzyjny dla jednej spolki: scenariusze "
-    "3-letnie cen akcji, bramke decyzyjna, kill criteria (sygnaly wyjscia) "
-    "i os czasu katalizatorow/ryzyk. Odpowiadasz WYLACZNIE poprawnym JSON "
-    "zgodnym ze schematem uzytkownika, po polsku, bez markdown i komentarzy."
+    "cen akcji na 12 miesiecy, bramke decyzyjna, kill criteria (sygnaly "
+    "wyjscia) i os czasu katalizatorow/ryzyk. Odpowiadasz WYLACZNIE poprawnym "
+    "JSON zgodnym ze schematem uzytkownika, po polsku, bez markdown i komentarzy."
 )
 
 _SCHEMA_HINT = """{
@@ -407,7 +504,8 @@ def generate_ai(ticker: str, row: dict) -> dict:
         f"Kontekst jakosciowy (wczesniejszy research):\n"
         f"{json.dumps(extra, ensure_ascii=False, default=str)}\n\n"
         "Zadanie: wypelnij panel decyzyjny. Ceny scenariuszy w walucie notowan, "
-        "horyzont 3 lata, prawdopodobienstwa low+base+high = 100. Kill criteria "
+        f"horyzont {HORIZON_MONTHS} miesiecy (nie dluzej), prawdopodobienstwa "
+        "low+base+high = 100. Kill criteria "
         "maja byc mierzalne (progi, wydarzenia), a timeline zawierac 4-6 wpisow "
         "z przyblizonymi datami (katalizatory 'plus', ryzyka 'minus').\n"
         f"Zwroc WYLACZNIE JSON wg schematu:\n{_SCHEMA_HINT}"
@@ -415,6 +513,7 @@ def generate_ai(ticker: str, row: dict) -> dict:
     data = ai_research.complete_json(SYSTEM_DECISION, prompt)
     result = _validate(data, row)
     result.update({"ticker": ticker, "model": ai_research.MODEL,
+                   "horizon_months": HORIZON_MONTHS,
                    "generated_at": datetime.now(timezone.utc)
                    .isoformat(timespec="seconds")})
     with open(_cache_path(ticker), "w", encoding="utf-8") as f:
@@ -462,8 +561,8 @@ def render(ticker: str, row: dict, wl: dict, save_wl) -> None:
     from charts.helpers import fmt_dt
 
     st.subheader(f"🎯 Panel decyzyjny — {ticker} — {row.get('name', ticker)}")
-    st.caption("Scenariusze 3-letnie, bramka decyzyjna, kill criteria, "
-               "oś czasu katalizatorów.")
+    st.caption(f"Scenariusze na {HORIZON_MONTHS} miesięcy, bramka decyzyjna, "
+               "kill criteria, oś czasu katalizatorów.")
 
     dec_store = wl.setdefault("decision", {})
     user = dec_store.get(ticker, {})
@@ -471,7 +570,8 @@ def render(ticker: str, row: dict, wl: dict, save_wl) -> None:
     rev = st.session_state.setdefault(rev_key, 0)
     K = f"dp_{ticker}_{rev}"  # prefiks kluczy widgetow (anty-bleed miedzy tickerami)
 
-    baseline = load_cached(ticker) or mechanical_baseline(row)
+    user = migrate_horizon(user, row) or {}
+    baseline = migrate_horizon(load_cached(ticker), row) or mechanical_baseline(row)
     merged = _merge(baseline, user)
     price = _f(row.get("price"))
     cur = row.get("currency") or ""
@@ -546,7 +646,7 @@ def render(ticker: str, row: dict, wl: dict, save_wl) -> None:
                 format="%.2f", key=f"{K}_price_{key}")
             if price and p > 0:
                 zw = (p / price - 1) * 100
-                st.markdown(_color_caption(f"{zw:+.0f}% / 3 lata",
+                st.markdown(_color_caption(f"{zw:+.0f}% / {HORIZON_MONTHS} mies.",
                                            "green" if zw >= 0 else "red"),
                             unsafe_allow_html=True)
             if key == "base":
@@ -573,13 +673,13 @@ def render(ticker: str, row: dict, wl: dict, save_wl) -> None:
     r1, r2, r3 = st.columns(3)
     with r1:
         ev = mth["ev"]
-        st.metric("Wartosc oczekiwana 3Y",
+        st.metric(f"Wartosc oczekiwana {HORIZON_MONTHS}M",
                   f"{ev:.0f} {cur}".strip() if ev is not None else "—",
                   delta=(f"{mth['ev_pct']*100:+.0f}% vs kurs"
                          if mth["ev_pct"] is not None else None))
     with r2:
         ce = mth["cagr_ev"]
-        st.metric("CAGR (EV) vs hurdle 12–15%",
+        st.metric(f"Zwrot {HORIZON_MONTHS}M (EV) vs hurdle 12–15%",
                   f"{ce*100:.1f}%" if ce is not None else "—")
         if ce is not None:
             lvl = "green" if ce >= HURDLE_HIGH else \
@@ -661,7 +761,7 @@ def render(ticker: str, row: dict, wl: dict, save_wl) -> None:
                                     key=f"{K}_killtxt", label_visibility="collapsed")
             kill_new = [ln.strip() for ln in kill_txt.splitlines() if ln.strip()]
 
-    verdict = final_verdict(gate, n_broken_now)
+    verdict = final_verdict(gate, n_broken_now, mth.get("low_pct"))
 
     # --- werdykt + licznik do raportu ---
     vc1, vc2 = st.columns([3, 1])
@@ -674,6 +774,13 @@ def render(ticker: str, row: dict, wl: dict, save_wl) -> None:
             f"WERDYKT BRAMKI: {verdict['label']}</div>"
             f"<div style='color:#64748b;font-size:0.85em;margin-top:4px'>{hint}</div>",
             unsafe_allow_html=True)
+        stale = staleness_note(baseline, row)
+        if stale:
+            st.warning(f"⚠️ {stale}")
+        if baseline.get("horizon_migrated"):
+            st.caption(f"Baza pochodzi sprzed zmiany horyzontu — ceny przeliczone "
+                       f"z 3 lat na {HORIZON_MONTHS} mies. Zweryfikuj je albo "
+                       "wygeneruj bazę ponownie.")
     with vc2:
         days = _days_to(row.get("next_earnings_date"))
         st.metric("Dni do raportu",
@@ -727,6 +834,7 @@ def render(ticker: str, row: dict, wl: dict, save_wl) -> None:
         if st.button("💾 Zapisz panel", key=f"{K}_save"):
             entry = dec_store.setdefault(ticker, {})
             entry.update(current)
+            entry["horizon_months"] = HORIZON_MONTHS
             entry["kill_broken"] = [k for k in checked if k in kill_new]
             entry["updated_at"] = datetime.now(timezone.utc)\
                 .isoformat(timespec="seconds")

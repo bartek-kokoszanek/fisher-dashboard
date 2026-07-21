@@ -24,17 +24,21 @@ scen = {"low": {"price": 25, "prob": 30},
 m = dp.compute_math(75, scen)
 check("EV = 107.25", abs(m["ev"] - 107.25) < 1e-9, f"ev={m['ev']}")
 check("EV% = +43%", abs(m["ev_pct"] - 0.43) < 0.001, f"ev_pct={m['ev_pct']:.4f}")
-check("CAGR(EV) ~12.66%", abs(m["cagr_ev"] - 0.12662) < 0.0005,
+# horyzont 12M: zwrot okresowy = zwrot roczny, wiec bez anualizacji pierwiastkiem
+check("Zwrot 12M (EV) = +43%", abs(m["cagr_ev"] - 0.43) < 0.0005,
       f"cagr_ev={m['cagr_ev']:.5f}")
 check("asymetria 2.7:1", abs(m["asym"] - 2.7) < 1e-9, f"asym={m['asym']}")
 check("base_prob dopelnia do 100", m["base_prob"] == 45)
+check("low_pct = -66.7% (25 vs kurs 75)", abs(m["low_pct"] + 2 / 3) < 1e-9,
+      f"low_pct={m['low_pct']}")
 
 # guardy
 m2 = dp.compute_math(20, scen)  # kurs ponizej low -> asym n/d
 check("kurs<=low -> asym None", m2["asym"] is None)
 m3 = dp.compute_math(None, scen)
 check("price None -> ev liczone, reszta None",
-      m3["ev"] is not None and m3["cagr_ev"] is None and m3["asym"] is None)
+      m3["ev"] is not None and m3["cagr_ev"] is None and m3["asym"] is None
+      and m3["low_pct"] is None)
 m4 = dp.compute_math(75, {"low": {"price": 25, "prob": 80},
                           "base": {"price": 105, "prob": 0},
                           "high": {"price": 210, "prob": 60}})
@@ -50,10 +54,31 @@ gate = dp.eval_gate(row, m, {}, {})
 by_id = {g["id"]: g["status"] for g in gate}
 check("fisher 70/100 -> ok", by_id["fisher"] == "ok")
 check("asym 2.7 + EV>kurs -> ok", by_id["asym"] == "ok")
-check("cagr_base ~11.9% -> fail (<12%)", by_id["cagr"] == "fail",
+check("cagr_base 40% -> ok (>=15%)", by_id["cagr"] == "ok",
       f"cagr_base={m['cagr_base']:.4f}")
 check("liquidity 40 mld -> ok", by_id["liquidity"] == "ok")
 check("variant bez AI -> borderline", by_id["variant"] == "borderline")
+
+# zwrot 12M ponizej progu -> cagr fail (base 80 vs kurs 75 = +6.7%)
+m_slaby = dp.compute_math(75, {"low": {"price": 60, "prob": 25},
+                               "base": {"price": 80, "prob": 50},
+                               "high": {"price": 95, "prob": 25}})
+check("cagr_base 6.7% -> fail (<12%)",
+      {g["id"]: g["status"] for g in dp.eval_gate(row, m_slaby, {}, {})}["cagr"]
+      == "fail", f"cagr_base={m_slaby['cagr_base']:.4f}")
+
+# variant: auto-porownanie z konsensusem jest INFO, nie zmienia statusu
+row_kons = dict(row, target_upside=0.11)   # konsensus +11% vs base +40%
+g_var = {g["id"]: g for g in dp.eval_gate(row_kons, m, {}, {})}["variant"]
+check("variant: info porownuje teze z konsensusem",
+      "konsensus" in g_var["info"] and "odmienna teza" in g_var["info"],
+      g_var["info"])
+check("variant: status nadal jakosciowy (borderline)",
+      g_var["status"] == "borderline")
+g_zbiezny = {g["id"]: g for g in
+             dp.eval_gate(dict(row, target_upside=0.38), m, {}, {})}["variant"]
+check("variant: teza zbiezna z rynkiem -> brak przewagi",
+      "brak przewagi" in g_zbiezny["info"], g_zbiezny["info"])
 
 # nadpisanie uzytkownika wygrywa nad AI dla variant
 gate2 = dp.eval_gate(row, m, {"variant": {"status": "ok", "info": "ai"}},
@@ -82,18 +107,36 @@ check("math ok, jakosc fail -> SPEKULACJA",
 check("math fail -> NIE KUPUJ",
       "NIE KUPUJ" in dp.final_verdict(mk(asym="fail"), 0)["label"])
 
+# guard obsuniecia: czysta bramka + gleboki dolek -> max pol pozycji
+check("LOW -40% -> guard scina do pol pozycji",
+      dp.final_verdict(mk(), 0, low_pct=-0.40)["level"] == "amber")
+check("LOW -20% -> guard nie odpala",
+      dp.final_verdict(mk(), 0, low_pct=-0.20)["label"] == "POZYCJA OK")
+check("low_pct None -> zachowanie jak dawniej (kompatybilnosc)",
+      dp.final_verdict(mk(), 0)["label"] == "POZYCJA OK")
+check("guard nie PODNOSI werdyktu (math fail zostaje NIE KUPUJ)",
+      "NIE KUPUJ" in dp.final_verdict(mk(asym="fail"), 0, low_pct=-0.05)["label"])
+
 # ---------------- mechanical_baseline ----------------
 mb = dp.mechanical_baseline({"price": 100, "target_mean": 150,
                              "next_earnings_date": "2026-08-06"})
-# target_mean to konsensus 12-miesieczny; baza scenariuszy jest 3-letnia, wiec
-# 1-roczna stopa (150/100-1=50%) jest kapitalizowana na 3 lata: 100*1.5**3=337.5
-check("base = konsensus skapitalizowany na 3 lata", mb["scenarios"]["base"]["price"] == 337.5)
-check("high = base*1.6", mb["scenarios"]["high"]["price"] == 540.0)
-check("low = max(0.3*price, base*0.45), capped na price",
-      mb["scenarios"]["low"]["price"] == 100.0)  # 0.45*337.5=151.9 > price -> capped
+# horyzont 12M: target_mean (cel 12-miesieczny) idzie do base 1:1, bez rzutowania
+check("base = konsensus 1:1", mb["scenarios"]["base"]["price"] == 150.0)
+check("high = base*1.25", mb["scenarios"]["high"]["price"] == 187.5)
+check("low = kurs*0.75", mb["scenarios"]["low"]["price"] == 75.0)
+check("baza mechaniczna oznaczona horyzontem",
+      mb["horizon_months"] == dp.HORIZON_MONTHS)
 check("timeline z data raportu", mb["timeline"][0]["date"] == "2026-08-06")
 mb2 = dp.mechanical_baseline({"price": None, "target_mean": None})
 check("brak danych -> puste scenariusze", mb2["scenarios"] == {})
+# cel analitykow ponizej kursu -> low musi zostac ponizej base
+mb3 = dp.mechanical_baseline({"price": 333.74, "target_mean": 318.25})
+check("cel < kursu -> low < base < high",
+      mb3["scenarios"]["low"]["price"] < mb3["scenarios"]["base"]["price"]
+      < mb3["scenarios"]["high"]["price"],
+      str({k: v["price"] for k, v in mb3["scenarios"].items()}))
+mb4 = dp.mechanical_baseline({"price": 100, "target_mean": None})
+check("brak konsensusu -> base = kurs*1.10", mb4["scenarios"]["base"]["price"] == 110.0)
 
 # ---------------- _validate: zepsuty JSON z modelu ----------------
 bad = {
@@ -123,8 +166,53 @@ check("timeline: zly typ -> minus, pusty tytul odfiltrowany",
 
 # calkowicie zepsuty JSON -> fallback mechaniczny
 v2 = dp._validate({}, {"price": 75, "target_mean": 100})
-# konsensus 100/75-1=33.3%/rok skapitalizowany na 3 lata: 75*(100/75)**3=177.78
-check("pusty JSON -> scenariusze z fallbacku", v2["scenarios"]["base"]["price"] == 177.78)
+check("pusty JSON -> scenariusze z fallbacku", v2["scenarios"]["base"]["price"] == 100.0)
+check("wynik _validate oznaczony horyzontem",
+      v2["horizon_months"] == dp.HORIZON_MONTHS)
+
+# ---------------- migrate_horizon: stare bazy 3-letnie ----------------
+row_m = {"price": 100}
+stara = {"source": "ai", "scenarios": {
+    "low": {"price": 64.0, "prob": 25}, "base": {"price": 337.5, "prob": 50},
+    "high": {"price": 1000.0, "prob": 25}}}
+mig = dp.migrate_horizon(stara, row_m)
+# p12 = kurs * (p3/kurs)**(1/3): 337.5 -> 150.0, 1000 -> 215.44, 64 -> 86.18
+# (scenariusz ponizej kursu podnosi sie ku kursowi - w 12 mies. jest blizej
+#  dzisiejszej ceny niz w 3 lata, tak samo jak scenariusz powyzej opada)
+check("migracja: base 337.5 (3L) -> 150.0 (12M)",
+      mig["scenarios"]["base"]["price"] == 150.0,
+      str(mig["scenarios"]["base"]["price"]))
+check("migracja: high 1000 -> 215.44", mig["scenarios"]["high"]["price"] == 215.44)
+check("migracja: low 64 -> 86.18", mig["scenarios"]["low"]["price"] == 86.18)
+check("migracja oznacza horyzont i flage", mig["horizon_months"] == dp.HORIZON_MONTHS
+      and mig["horizon_migrated"] is True)
+check("migracja nie mutuje wejscia", stara["scenarios"]["base"]["price"] == 337.5)
+check("migracja idempotentna (drugi przebieg nic nie zmienia)",
+      dp.migrate_horizon(mig, row_m)["scenarios"]["base"]["price"] == 150.0)
+check("brak ceny -> dict bez zmian",
+      dp.migrate_horizon(stara, {"price": None})["scenarios"]["base"]["price"] == 337.5)
+check("None -> None", dp.migrate_horizon(None, row_m) is None)
+
+# ---------------- staleness_note ----------------
+from datetime import date as _date, timedelta as _td
+_dzis = _date.today()
+swieza = {"source": "ai", "generated_at": _dzis.isoformat()}
+check("swieza baza AI -> brak ostrzezenia",
+      dp.staleness_note(swieza, {}) is None)
+check("baza mechaniczna -> brak ostrzezenia",
+      dp.staleness_note({"source": "mechanical"}, {}) is None)
+stara_baza = {"source": "ai",
+              "generated_at": (_dzis - _td(days=dp.STALE_DAYS + 10)).isoformat()}
+check("baza >90 dni -> ostrzezenie o wieku",
+      "dni" in (dp.staleness_note(stara_baza, {}) or ""))
+check("raport kwartalny po generacji -> ostrzezenie",
+      "raport kwartalny" in (dp.staleness_note(
+          swieza, {"last_q_date": (_dzis + _td(days=1)).isoformat()}) or ""))
+check("raport sprzed generacji -> brak ostrzezenia",
+      dp.staleness_note(swieza,
+                        {"last_q_date": (_dzis - _td(days=30)).isoformat()}) is None)
+check("zepsuta data generacji -> brak wyjatku",
+      dp.staleness_note({"source": "ai", "generated_at": "kiedys"}, {}) is None)
 
 # ---------------- _merge ----------------
 mrg = dp._merge({"scenarios": {"low": 1}, "kill": ["a"], "timeline": [1]},
