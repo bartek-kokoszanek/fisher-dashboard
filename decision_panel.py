@@ -22,23 +22,25 @@ import config
 
 # ---------------- Stale ----------------
 
+# Horyzont panelu. Konsensus analitykow Yahoo (target_mean) JEST cena docelowa
+# na 12 miesiecy, wiec przy tym horyzoncie mapuje sie 1:1 - bez rzutowania w
+# czasie, ktore bylo zrodlem bledow przy poprzednim horyzoncie 3-letnim.
+HORIZON_MONTHS = 12
+# Horyzont starych baz (sprzed tej zmiany) - potrzebny tylko migrate_horizon.
+_LEGACY_HORIZON_MONTHS = 36
+
 GATE_LABELS = {
     "fisher":    "Fisher ≥ 10/15, brak twardych czerwonych flag",
     "variant":   "Variant perception po mojej stronie",
     "asym":      "Asymetria ≥ 2:1 i EV > kurs",
     "cagr":      "Base case ≥ hurdle rate 12–15%",
-    "catalyst":  "Katalizator w 12M",
+    "catalyst":  f"Katalizator w {HORIZON_MONTHS}M",
     "liquidity": "Plynnosc wystarczajaca",
 }
 GATE_ORDER = list(GATE_LABELS)
 STATUSES = ("ok", "borderline", "fail")
 _STATUS_ICON = {"ok": "✅", "borderline": "⚠️", "fail": "❌"}
 _RANK = {"ok": 0, "borderline": 1, "fail": 2}
-
-# Horyzont panelu. Konsensus analitykow Yahoo (target_mean) JEST cena docelowa
-# na 12 miesiecy, wiec przy tym horyzoncie mapuje sie 1:1 - bez rzutowania w
-# czasie, ktore bylo zrodlem bledow przy poprzednim horyzoncie 3-letnim.
-HORIZON_MONTHS = 12
 
 HURDLE_LOW, HURDLE_HIGH = 0.12, 0.15   # prog zwrotu 12M (dolna/pelna granica)
 ASYM_MIN = 2.0                          # wymagana asymetria zysk:strata
@@ -57,6 +59,14 @@ def _f(v) -> float | None:
     try:
         x = float(v)
         return None if _math.isnan(x) or _math.isinf(x) else x
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_date(iso) -> date | None:
+    """ISO -> date, tolerujac None/format spoza normy (zwraca None)."""
+    try:
+        return date.fromisoformat(str(iso)[:10])
     except (TypeError, ValueError):
         return None
 
@@ -259,13 +269,14 @@ def verdict_for(ticker: str, row: dict, wl: dict | None = None) -> dict | None:
 
 
 def migrate_horizon(data: dict | None, row: dict) -> dict | None:
-    """Stare bazy/nadpisania 3-letnie -> ceny na horyzont HORIZON_MONTHS.
+    """Stare bazy/nadpisania (_LEGACY_HORIZON_MONTHS) -> ceny na HORIZON_MONTHS.
 
-    Panel liczyl kiedys scenariusze na 3 lata, wiec zapisane wtedy ceny sa
-    2-3x wyzsze niz to, co ta sama teza oznacza w 12 miesiecy - bez
-    przeliczenia stary cache dawalby razaco zbyt optymistyczny werdykt.
-    Sciagamy je odwrotnoscia tej samej matematyki, ktora je tworzyla:
-    p12 = kurs * (p3/kurs)**(1/3).
+    Baza bez pola "horizon_months" pochodzi sprzed tej zmiany i ma ceny
+    liczone na _LEGACY_HORIZON_MONTHS (36 mies.) - bez przeliczenia dawalaby
+    razaco zbyt optymistyczny werdykt. Skalujemy zwrot proporcja horyzontow,
+    ta sama matematyka co go tworzyla: p_new = kurs * (p_old/kurs)**ratio,
+    gdzie ratio = HORIZON_MONTHS / _LEGACY_HORIZON_MONTHS (dla 12/36 = 1/3).
+    Dzieki ratio kolejna zmiana HORIZON_MONTHS przeliczy stare bazy poprawnie.
 
     Wynik NIE jest zapisywany na dysk ani do Gista - przeliczenie zyje w
     pamieci i utrwala sie dopiero, gdy uzytkownik kliknie "Zapisz panel".
@@ -276,11 +287,12 @@ def migrate_horizon(data: dict | None, row: dict) -> dict | None:
     price = _f(row.get("price"))
     if not scen or not price or price <= 0:
         return data
+    ratio = HORIZON_MONTHS / _LEGACY_HORIZON_MONTHS
     out = copy.deepcopy(data)
     for k in ("low", "base", "high"):
         p = _f((out.get("scenarios") or {}).get(k, {}).get("price"))
         if p and p > 0:
-            out["scenarios"][k]["price"] = round(price * (p / price) ** (1 / 3), 2)
+            out["scenarios"][k]["price"] = round(price * (p / price) ** ratio, 2)
     out["horizon_months"] = HORIZON_MONTHS
     out["horizon_migrated"] = True
     return out
@@ -294,20 +306,16 @@ def staleness_note(baseline: dict | None, row: dict) -> str | None:
     """
     if (baseline or {}).get("source") != "ai":
         return None
-    try:
-        gen_d = date.fromisoformat(str(baseline.get("generated_at") or "")[:10])
-    except (TypeError, ValueError):
+    gen_d = _parse_date(baseline.get("generated_at"))
+    if gen_d is None:
         return None
     powody = []
     age = (date.today() - gen_d).days
     if age > STALE_DAYS:
         powody.append(f"baza AI ma {age} dni")
-    try:
-        lq = date.fromisoformat(str(row.get("last_q_date") or "")[:10])
-        if lq > gen_d:
-            powody.append(f"od jej wygenerowania byl raport kwartalny ({lq})")
-    except (TypeError, ValueError):
-        pass
+    lq = _parse_date(row.get("last_q_date"))
+    if lq and lq > gen_d:
+        powody.append(f"od jej wygenerowania byl raport kwartalny ({lq})")
     if not powody:
         return None
     return " · ".join(powody) + " — wygeneruj baze ponownie."
@@ -326,8 +334,9 @@ def mechanical_baseline(row: dict) -> dict:
     target = _f(row.get("target_mean"))
     scen = {}
     if price and price > 0:
-        base = target if (target and target > 0) else price * MECH_NO_CONSENSUS
-        src = "konsensus analitykow (cena docelowa 12M)" if (target and target > 0) \
+        has_consensus = bool(target and target > 0)
+        base = target if has_consensus else price * MECH_NO_CONSENSUS
+        src = "konsensus analitykow (cena docelowa 12M)" if has_consensus \
             else (f"brak konsensusu — zalozone "
                   f"+{(MECH_NO_CONSENSUS - 1) * 100:.0f}% w 12 mies.")
         # min(...): gwarantuje low < base takze wtedy, gdy cel analitykow
@@ -541,11 +550,8 @@ def _fmt_big(v) -> str:
 
 
 def _days_to(iso: str | None) -> int | None:
-    try:
-        d = date.fromisoformat(str(iso)[:10])
-        return (d - date.today()).days
-    except (TypeError, ValueError):
-        return None
+    d = _parse_date(iso)
+    return (d - date.today()).days if d else None
 
 
 def _color_caption(txt: str, level: str) -> str:
